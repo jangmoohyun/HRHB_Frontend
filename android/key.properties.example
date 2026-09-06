@@ -1,0 +1,4 @@
+storePassword=wkdangus17
+keyPassword=wkdangus17
+keyAlias=upload
+storeFile=../upload-keystore.jks

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "530775206499",
+    "project_id": "hrhb-836ca",
+    "storage_bucket": "hrhb-836ca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:530775206499:android:e071470e1b1c2a75a4a656",
+        "android_client_info": {
+          "package_name": "com.moohyun.haru"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8g5BLCgZ1XmByPJ8sALRSaR3ALEHuMgc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

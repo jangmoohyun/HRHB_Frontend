@@ -1,0 +1,130 @@
+name: hrhb_frontend
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.1.1+5
+
+environment:
+  sdk: ^3.12.2
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  kakao_flutter_sdk_user: ^1.9.7+3
+  http: ^1.2.2
+  flutter_secure_storage: ^9.2.4
+  flutter_dotenv: ^5.2.1
+  image_picker: ^1.1.2
+  gal: ^2.3.1
+  firebase_core: ^4.13.0
+  firebase_messaging: ^16.5.0
+  url_launcher: ^6.3.1
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/app_icon.png
+  remove_alpha_ios: true
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  assets:
+    - .env
+    - assets/policy/terms_of_use.txt
+    - assets/policy/privacy_policy.txt
+    - assets/images/background/
+    - assets/images/loading/
+    - assets/images/loginpage/letter/
+    - assets/images/loginpage/kakaologin/
+    - assets/images/family/familyjoin/
+    - assets/images/public/
+    - assets/images/navigation/
+    - assets/images/todayquestionscreen/
+    - assets/images/answerscreen/
+    - assets/images/familyondo/
+    - assets/images/ondo_popup/
+    - assets/images/ondo_popup/up_popup/
+    - assets/images/ondo_popup/up_popup/paper.png
+    - assets/images/ondo_popup/up_popup/grass.png
+    - assets/images/ondo_popup/up_popup/thermometer.png
+    - assets/images/ondo_popup/up_popup/text_balloon.png
+    - assets/images/ondo_popup/up_popup/arrow.png
+    - assets/images/ondo_popup/up_popup/ondo_left.png
+    - assets/images/ondo_popup/up_popup/ondo_right.png
+    - assets/images/ondo_popup/up_popup/left_heart_1.png
+    - assets/images/ondo_popup/up_popup/left_heart_2.png
+    - assets/images/ondo_popup/up_popup/middle_heart.png
+    - assets/images/ondo_popup/up_popup/right_heart_1.png
+    - assets/images/ondo_popup/up_popup/right_heart_2.png
+    - assets/images/ondo_popup/down_popup/
+    - assets/images/ondo_popup/down_popup/arrow.png
+    - assets/images/ondo_popup/down_popup/cloud.png
+    - assets/images/ondo_popup/down_popup/heart1.png
+    - assets/images/ondo_popup/down_popup/heart2.png
+    - assets/images/ondo_popup/down_popup/rain1.png
+    - assets/images/ondo_popup/down_popup/rain2.png
+    - assets/images/ondo_popup/down_popup/test_balloon.png
+    - assets/images/ondo_popup/down_popup/thermameter.png
+
+  fonts:
+    - family: Cafe24Oneprettynight
+      fonts:
+        - asset: assets/fonts/title/Cafe24Oneprettynight-v2.0.ttf
+    - family: Question
+      fonts:
+        - asset: assets/fonts/title/question.ttf
+    - family: FamilyNameDate
+      fonts:
+        - asset: assets/fonts/title/familyname_date.ttf
+    - family: BMYeonsung
+      fonts:
+        - asset: assets/fonts/title/BMYEONSUNG_ttf.ttf
+    - family: NanumDasiSijakhae
+      fonts:
+        - asset: assets/fonts/title/NanumSongeulssiDasiSijakhae.ttf

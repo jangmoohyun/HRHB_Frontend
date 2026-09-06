@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">하루한번</string>
+    <!-- Replace with Kakao Native App Key from developers.kakao.com -->
+    <string name="kakao_app_key">24a23a8d91945dd532326b822a3f0a45</string>
+</resources>
