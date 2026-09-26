@@ -1,19 +1,19 @@
-import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import 'package:hrhb_frontend/services/session_bootstrap.dart';
+import 'package:hrhb_frontend/data/family_context.dart';
 import 'package:hrhb_frontend/services/push_notification_service.dart';
-import 'package:hrhb_frontend/widgets/sprout_icon.dart';
+import 'package:hrhb_frontend/services/session_bootstrap.dart';
+import 'package:hrhb_frontend/theme/text.dart';
+import 'package:hrhb_frontend/theme/tokens.dart';
 
-import '../family/select/family_select_screen.dart';
-import '../home/home_shell.dart';
 import '../login/login_screen.dart';
+import '../onboarding/family_select_screen.dart';
+import '../shell/home_shell.dart';
 
-const _cream = Color(0xFFFDFBF0);
-const _titleGreen = Color(0xFF3A6A3F);
-const _bodyGrey = Color(0xFF5F5F5F);
-const _mutedGrey = Color(0xFF9B9B9B);
-
+/// 01 로딩 — decides where to go (12s timeout, ≥1.2s splash; unchanged logic).
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});
 
@@ -21,323 +21,203 @@ class LoadingScreen extends StatefulWidget {
   State<LoadingScreen> createState() => _LoadingScreenState();
 }
 
-class _LoadingScreenState extends State<LoadingScreen>
-    with TickerProviderStateMixin {
-  late final AnimationController _fadeController;
-  late final AnimationController _floatController;
-  late final AnimationController _loaderController;
+class _LoadingScreenState extends State<LoadingScreen> with TickerProviderStateMixin {
+  final _session = SessionBootstrap();
 
-  late final Animation<double> _fadeIn;
-  late final Animation<double> _float;
+  /// hxFloat 3s: translateY 0 ↔ -10px.
+  late final _float = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))
+    ..repeat(reverse: true);
 
-  final SessionBootstrap _sessionBootstrap = SessionBootstrap();
+  /// hxDot 1.2s loop for the three dots.
+  late final _dots = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
+    ..repeat();
 
   @override
   void initState() {
     super.initState();
-
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-    _floatController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3000),
-    )..repeat(reverse: true);
-    _loaderController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
-
-    _fadeIn = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
-    _float = Tween<double>(begin: -5, end: 5).animate(
-      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
-    );
-
-    _fadeController.forward();
-    _bootstrapSession();
+    _bootstrap();
   }
 
-  Future<void> _bootstrapSession() async {
-    final startedAt = DateTime.now();
+  @override
+  void dispose() {
+    _float.dispose();
+    _dots.dispose();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    final started = DateTime.now();
     SessionDestination destination;
     try {
-      destination = await _sessionBootstrap.resolve().timeout(
-        const Duration(seconds: 12),
-      );
-    } catch (error, stack) {
-      debugPrint('Session bootstrap failed: $error\n$stack');
+      destination = await _session.resolve().timeout(const Duration(seconds: 12));
+    } catch (e, st) {
+      debugPrint('Session bootstrap failed: $e\n$st');
       destination = SessionDestination.login;
     }
-
-    // Keep splash visible briefly so the transition does not feel abrupt.
-    final elapsed = DateTime.now().difference(startedAt);
+    final elapsed = DateTime.now().difference(started);
     const minSplash = Duration(milliseconds: 1200);
-    if (elapsed < minSplash) {
-      await Future<void>.delayed(minSplash - elapsed);
-    }
-
+    if (elapsed < minSplash) await Future<void>.delayed(minSplash - elapsed);
     if (!mounted) return;
     if (destination != SessionDestination.login) {
-      // Fire-and-forget; never block navigation on push registration.
       PushNotificationService.instance.registerCurrentDevice();
     }
+    if (destination == SessionDestination.home) {
+      await FamilyContext.instance.loadCached();
+    }
+    if (!mounted) return;
     final Widget next = switch (destination) {
       SessionDestination.home => const HomeShell(),
       SessionDestination.familySelect => const FamilySelectScreen(),
       SessionDestination.login => const LoginScreen(),
     };
-
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => next),
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 340),
+        pageBuilder: (_, _, _) => next,
+        transitionsBuilder: (_, a, _, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: a, curve: HaruMotion.standard),
+          child: child,
+        ),
+      ),
     );
   }
 
   @override
-  void dispose() {
-    _fadeController.dispose();
-    _floatController.dispose();
-    _loaderController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: HaruColors.canvas,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(32, 0, 32, 80),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('하루한번', style: haruLogo(60)),
+                const SizedBox(height: 10),
+                Text('가족을 잇는 감성 커뮤니케이션', style: haruText(15, color: HaruColors.dsInkMuted)),
+                const SizedBox(height: 56 + 40),
+                AnimatedBuilder(
+                  animation: _float,
+                  builder: (_, child) => Transform.translate(
+                    offset: Offset(0, -10 * Curves.easeInOut.transform(_float.value)),
+                    child: child,
+                  ),
+                  child: const _LoadingEnvelope(),
+                ),
+                const SizedBox(height: 56),
+                Text.rich(
+                  TextSpan(
+                    text: '오늘도 ',
+                    style: haruText(16, color: HaruColors.dsInkSecondary),
+                    children: [
+                      TextSpan(
+                        text: '가족의 마음을',
+                        style: haruText(16, weight: FontWeight.w600, color: HaruColors.primary),
+                      ),
+                      const TextSpan(text: ' 이어드릴게요.'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text('따뜻한 하루를 준비하고 있어요', style: haruText(14, color: HaruColors.dsInkFaint)),
+                const SizedBox(height: 18),
+                AnimatedBuilder(
+                  animation: _dots,
+                  builder: (_, _) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < 3; i++) ...[
+                        if (i > 0) const SizedBox(width: 6),
+                        _dot((_dots.value - i * 0.2 / 1.2) % 1),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final shortest = size.shortestSide;
-
-    return Scaffold(
-      backgroundColor: _cream,
-      body: FadeTransition(
-        opacity: _fadeIn,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _BranchDecorations(screenSize: size),
-            SafeArea(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: shortest * 0.08),
-                child: Column(
-                  children: [
-                    SizedBox(height: size.height * 0.055),
-                    Text(
-                      '하루한번',
-                      style: TextStyle(
-                        fontFamily: 'Cafe24Oneprettynight',
-                        fontSize: shortest * 0.105,
-                        height: 1.05,
-                        color: _titleGreen,
-                      ),
-                    ),
-                    SizedBox(height: size.height * 0.012),
-                    Text(
-                      '가족을 잇는 감성 커뮤니케이션',
-                      style: TextStyle(
-                        fontSize: shortest * 0.035,
-                        height: 1.3,
-                        letterSpacing: -0.3,
-                        color: _mutedGrey,
-                      ),
-                    ),
-                    SizedBox(height: size.height * 0.022),
-                    const SproutDivider(),
-                    Expanded(
-                      child: Align(
-                        alignment: const Alignment(0, -0.45),
-                        child: AnimatedBuilder(
-                          animation: _float,
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, _float.value),
-                              child: child,
-                            );
-                          },
-                          child: Image.asset(
-                            'assets/images/loading/letter.png',
-                            width: shortest * 0.72,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Text.rich(
-                      TextSpan(
-                        style: TextStyle(
-                          fontSize: shortest * 0.038,
-                          height: 1.4,
-                          color: _bodyGrey,
-                        ),
-                        children: const [
-                          TextSpan(text: '오늘도 '),
-                          TextSpan(
-                            text: '가족의 마음을',
-                            style: TextStyle(
-                              color: _titleGreen,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          TextSpan(text: ' 이어드릴게요.'),
-                        ],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: size.height * 0.012),
-                    Text(
-                      '따뜻한 하루를 준비하고 있어요...',
-                      style: TextStyle(
-                        fontSize: shortest * 0.032,
-                        color: _mutedGrey,
-                      ),
-                    ),
-                    SizedBox(height: size.height * 0.028),
-                    AnimatedBuilder(
-                      animation: _loaderController,
-                      builder: (context, _) {
-                        final step = (_loaderController.value * 3).floor() % 3;
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(3, (index) {
-                            final active = index <= step;
-                            return Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: shortest * 0.012,
-                              ),
-                              child: SproutIcon(
-                                size: shortest * 0.038,
-                                opacity: active ? 1 : 0.35,
-                              ),
-                            );
-                          }),
-                        );
-                      },
-                    ),
-                    SizedBox(height: size.height * 0.18),
-                  ],
-                ),
-              ),
-            ),
-          ],
+  /// hxDot: opacity .35→1→.35, scale .8→1.15→.8.
+  Widget _dot(double phase) {
+    final k = (math.sin(phase * 2 * math.pi - math.pi / 2) + 1) / 2;
+    return Opacity(
+      opacity: 0.35 + 0.65 * k,
+      child: Transform.scale(
+        scale: 0.8 + 0.35 * k,
+        child: Container(
+          width: 6,
+          height: 6,
+          decoration: const BoxDecoration(color: HaruColors.primary, shape: BoxShape.circle),
         ),
       ),
     );
   }
 }
 
-class _BranchDecorations extends StatelessWidget {
-  const _BranchDecorations({required this.screenSize});
-
-  final Size screenSize;
+/// Green envelope with a white letter peeking out (200×136).
+class _LoadingEnvelope extends StatelessWidget {
+  const _LoadingEnvelope();
 
   @override
   Widget build(BuildContext context) {
-    final h = screenSize.height;
-
-    Widget leftBranch({
-      required String asset,
-      required double top,
-      required double height,
-      double angle = 0,
-      double opacity = 0.78,
-    }) {
-      return Positioned(
-        top: top,
-        left: 0,
-        child: Transform.translate(
-          offset: Offset(-height * 0.12, height * 0.08),
-          child: Opacity(
-            opacity: opacity,
-            child: Transform.rotate(
-              angle: angle,
-              alignment: Alignment.bottomLeft,
-              child: Image.asset(
-                asset,
-                height: height,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    Widget rightBranch({
-      required String asset,
-      required double top,
-      required double height,
-      double angle = 0,
-      double opacity = 0.78,
-      double edgeNudge = 0.12,
-    }) {
-      return Positioned(
-        top: top,
-        right: 0,
-        child: Transform.translate(
-          offset: Offset(height * edgeNudge, height * 0.08),
-          child: Opacity(
-            opacity: opacity,
-            child: Transform.rotate(
-              angle: angle,
-              alignment: Alignment.bottomRight,
-              child: Image.asset(
-                asset,
-                height: height,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return IgnorePointer(
+    return SizedBox(
+      width: 200,
+      height: 136,
       child: Stack(
-        clipBehavior: Clip.hardEdge,
+        clipBehavior: Clip.none,
         children: [
-          leftBranch(
-            asset: 'assets/images/background/leftbranch_1.png',
-            top: h * 0.02,
-            height: h * 0.28,
-            angle: 0.25,
+          Positioned(
+            left: 24,
+            right: 24,
+            top: -48,
+            height: 124,
+            child: Container(
+              padding: const EdgeInsets.only(top: 22),
+              alignment: Alignment.topCenter,
+              decoration: BoxDecoration(
+                color: HaruColors.surface,
+                border: Border.all(color: HaruColors.hairline),
+                borderRadius: BorderRadius.circular(HaruRadius.md),
+              ),
+              child: const Icon(LucideIcons.heart, size: 28, color: HaruColors.primary),
+            ),
           ),
-          leftBranch(
-            asset: 'assets/images/background/leftbranch_2.png',
-            top: h * 0.28,
-            height: h * 0.24,
-            angle: -0.05,
-          ),
-          leftBranch(
-            asset: 'assets/images/background/leftbranch_3.png',
-            top: h * 0.45,
-            height: h * 0.29,
-            angle: 0.2,
-          ),
-          leftBranch(
-            asset: 'assets/images/background/leftbranch_4.png',
-            top: h * 0.74,
-            height: h * 0.24,
-            angle: 0.2,
-          ),
-          rightBranch(
-            asset: 'assets/images/background/rightbranch_1.png',
-            top: h * 0.1,
-            height: h * 0.29,
-            angle: 0.1,
-          ),
-          rightBranch(
-            asset: 'assets/images/background/rightbranch_2.png',
-            top: h * 0.42,
-            height: h * 0.24,
-            angle: -0.05,
-            edgeNudge: 0.28,
-          ),
-          rightBranch(
-            asset: 'assets/images/background/rightbranch_3.png',
-            top: h * 0.64,
-            height: h * 0.3,
-            angle: -0.15,
+          Positioned.fill(
+            child: ClipPath(
+              clipper: const _NotchClipper(0.58),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: HaruColors.accentGreen,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+/// clip-path: polygon(0 0, 50% N%, 100% 0, 100% 100%, 0 100%) — a V notch.
+class _NotchClipper extends CustomClipper<Path> {
+  const _NotchClipper(this.depth);
+  final double depth;
+
+  @override
+  Path getClip(Size s) => Path()
+    ..moveTo(0, 0)
+    ..lineTo(s.width / 2, s.height * depth)
+    ..lineTo(s.width, 0)
+    ..lineTo(s.width, s.height)
+    ..lineTo(0, s.height)
+    ..close();
+
+  @override
+  bool shouldReclip(_NotchClipper old) => old.depth != depth;
 }

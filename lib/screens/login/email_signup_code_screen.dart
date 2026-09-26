@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:hrhb_frontend/services/email_auth_service.dart';
+import 'package:hrhb_frontend/theme/text.dart';
+import 'package:hrhb_frontend/theme/tokens.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_basics.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
 
-import 'auth_form_widgets.dart';
+import 'auth_scaffold.dart';
 import 'email_signup_password_screen.dart';
 
+/// 06 가입 ② 인증코드.
 class EmailSignupCodeScreen extends StatefulWidget {
   const EmailSignupCodeScreen({super.key, required this.email});
 
@@ -15,42 +23,40 @@ class EmailSignupCodeScreen extends StatefulWidget {
 }
 
 class _EmailSignupCodeScreenState extends State<EmailSignupCodeScreen> {
-  final _codeController = TextEditingController();
-  final _emailAuth = EmailAuthService();
+  final _code = TextEditingController();
+  final _auth = EmailAuthService();
   bool _loading = false;
   bool _resending = false;
+  String? _error;
 
   @override
   void dispose() {
-    _codeController.dispose();
+    _code.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final code = _codeController.text.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      _showMessage('인증번호 6자리를 입력해주세요.');
-      return;
-    }
-
-    setState(() => _loading = true);
+  Future<void> _verify() async {
+    final code = _code.text.trim();
+    if (code.length != 6) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final result = await _emailAuth.verifySignupCode(
-        email: widget.email,
-        code: code,
-      );
+      final r = await _auth.verifySignupCode(email: widget.email, code: code);
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => EmailSignupPasswordScreen(
-            email: result.email,
-            signupToken: result.signupToken,
-          ),
+          builder: (_) => EmailSignupPasswordScreen(email: r.email, signupToken: r.signupToken),
         ),
       );
-    } catch (error) {
+    } catch (e) {
       if (!mounted) return;
-      _showMessage(_friendlyError(error));
+      final t = e.toString();
+      setState(() => _error = t.contains('expired')
+          ? '인증번호가 만료됐어요. 다시 받아 주세요.'
+          : '인증번호가 맞지 않아요. 다시 확인해 주세요.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -60,69 +66,61 @@ class _EmailSignupCodeScreenState extends State<EmailSignupCodeScreen> {
     if (_resending) return;
     setState(() => _resending = true);
     try {
-      final result = await _emailAuth.sendSignupCode(widget.email);
+      final r = await _auth.sendSignupCode(widget.email);
       if (!mounted) return;
-      if (result.debugCode != null && result.debugCode!.isNotEmpty) {
-        _showMessage('인증번호: ${result.debugCode}');
-      } else {
-        _showMessage('인증번호를 다시 보냈어요.');
-      }
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage('재전송에 실패했습니다.\n$error');
+      final debug = r.debugCode;
+      HaruToast.show(
+        context,
+        debug != null && debug.isNotEmpty ? '인증번호: $debug' : '인증번호를 다시 보냈어요',
+        icon: LucideIcons.mail,
+      );
+    } catch (_) {
+      if (mounted) setState(() => _error = '인증번호를 다시 보내지 못했어요.');
     } finally {
       if (mounted) setState(() => _resending = false);
     }
   }
 
-  String _friendlyError(Object error) {
-    final text = error.toString();
-    if (text.contains('expired')) return '인증번호가 만료되었어요. 다시 요청해주세요.';
-    if (text.contains('Invalid')) return '인증번호가 올바르지 않아요.';
-    return '인증에 실패했습니다.\n$error';
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return AuthFormScaffold(
-      title: '인증번호 확인',
-      subtitle: '${widget.email}\n으로 보낸 6자리 인증번호를 입력해주세요.',
-      onBack: () => Navigator.of(context).pop(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AuthTextField(
-            controller: _codeController,
-            hintText: '000000',
+    return AuthPage(
+      children: [
+        const AuthStepIndicator(step: 2),
+        AuthTitle(
+          title: '인증번호를 입력해 주세요',
+          description: '${widget.email}으로\n보낸 6자리 번호예요.',
+        ),
+        Gap(children: [
+          HaruTextField(
+            controller: _code,
+            hint: '000000',
+            height: 64,
+            fontSize: 30,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 14,
+            textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             maxLength: 6,
-            textAlign: TextAlign.center,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => setState(() => _error = null),
+            onSubmitted: (_) => _verify(),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _resending ? null : _resend,
-              child: Text(
-                _resending ? '전송 중...' : '인증번호 재전송',
-                style: const TextStyle(color: titleGreen),
-              ),
-            ),
+          if (_error != null) HaruFieldError(_error!, icon: LucideIcons.circleAlert),
+          Row(
+            children: [
+              Expanded(child: Text('메일이 오지 않았나요?', style: haruText(14, color: HaruColors.dsInkMuted))),
+              HaruButton(label: '다시 보내기', variant: HaruButtonVariant.link, onPressed: _resend),
+            ],
           ),
-          const SizedBox(height: 8),
-          AuthPrimaryButton(
+          HaruButton(
             label: '확인',
+            size: HaruButtonSize.lg,
+            fullWidth: true,
             loading: _loading,
-            onPressed: _submit,
+            onPressed: _code.text.trim().length == 6 ? _verify : null,
           ),
-        ],
-      ),
+        ]),
+      ],
     );
   }
 }

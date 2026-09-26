@@ -28,7 +28,7 @@ class SessionBootstrap {
     if (access != null && access.isNotEmpty) {
       try {
         final me = await _apiClient.fetchMe(access);
-        return _finish(
+        return await _finish(
           me.familyId,
           accessToken: access,
           isFamilyCreator: me.isFamilyCreator,
@@ -54,7 +54,7 @@ class SessionBootstrap {
       if (await AuthApi.instance.hasToken()) {
         final result = await _kakaoAuthService.loginWithExistingKakaoToken();
         final accessToken = await _tokenStorage.readAccessToken();
-        return _finish(
+        return await _finish(
           result.familyId,
           accessToken: accessToken,
           isFamilyCreator: result.isFamilyCreator,
@@ -129,7 +129,7 @@ class SessionBootstrap {
         refreshToken: pair.refreshToken,
         userId: userId,
       );
-      return _apiClient.fetchMe(pair.accessToken);
+      return await _apiClient.fetchMe(pair.accessToken);
     } catch (_) {
       await _tokenStorage.clear();
       return null;

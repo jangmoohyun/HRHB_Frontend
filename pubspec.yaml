@@ -43,6 +43,7 @@ dependencies:
   firebase_core: ^4.13.0
   firebase_messaging: ^16.5.0
   url_launcher: ^6.3.1
+  lucide_icons_flutter: ^3.1.20
 
 
 dev_dependencies:
@@ -78,53 +79,29 @@ flutter:
     - .env
     - assets/policy/terms_of_use.txt
     - assets/policy/privacy_policy.txt
-    - assets/images/background/
-    - assets/images/loading/
-    - assets/images/loginpage/letter/
-    - assets/images/loginpage/kakaologin/
-    - assets/images/family/familyjoin/
-    - assets/images/public/
-    - assets/images/navigation/
-    - assets/images/todayquestionscreen/
-    - assets/images/answerscreen/
-    - assets/images/familyondo/
-    - assets/images/ondo_popup/
-    - assets/images/ondo_popup/up_popup/
-    - assets/images/ondo_popup/up_popup/paper.png
-    - assets/images/ondo_popup/up_popup/grass.png
-    - assets/images/ondo_popup/up_popup/thermometer.png
-    - assets/images/ondo_popup/up_popup/text_balloon.png
-    - assets/images/ondo_popup/up_popup/arrow.png
-    - assets/images/ondo_popup/up_popup/ondo_left.png
-    - assets/images/ondo_popup/up_popup/ondo_right.png
-    - assets/images/ondo_popup/up_popup/left_heart_1.png
-    - assets/images/ondo_popup/up_popup/left_heart_2.png
-    - assets/images/ondo_popup/up_popup/middle_heart.png
-    - assets/images/ondo_popup/up_popup/right_heart_1.png
-    - assets/images/ondo_popup/up_popup/right_heart_2.png
-    - assets/images/ondo_popup/down_popup/
-    - assets/images/ondo_popup/down_popup/arrow.png
-    - assets/images/ondo_popup/down_popup/cloud.png
-    - assets/images/ondo_popup/down_popup/heart1.png
-    - assets/images/ondo_popup/down_popup/heart2.png
-    - assets/images/ondo_popup/down_popup/rain1.png
-    - assets/images/ondo_popup/down_popup/rain2.png
-    - assets/images/ondo_popup/down_popup/test_balloon.png
-    - assets/images/ondo_popup/down_popup/thermameter.png
 
   fonts:
+    # VER2 — all SIL OFL, licenses in assets/fonts/licenses/
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/pretendard/Pretendard-Regular.otf
+          weight: 400
+        - asset: assets/fonts/pretendard/Pretendard-Medium.otf
+          weight: 500
+        - asset: assets/fonts/pretendard/Pretendard-SemiBold.otf
+          weight: 600
+        - asset: assets/fonts/pretendard/Pretendard-Bold.otf
+          weight: 700
+        - asset: assets/fonts/pretendard/Pretendard-ExtraBold.otf
+          weight: 800
+    - family: GowunBatang
+      fonts:
+        - asset: assets/fonts/gowun_batang/GowunBatang-Regular.ttf
+    - family: Gaegu
+      fonts:
+        - asset: assets/fonts/gaegu/Gaegu-Bold.ttf
+          weight: 700
+    # Wordmark "하루한번" only.
     - family: Cafe24Oneprettynight
       fonts:
-        - asset: assets/fonts/title/Cafe24Oneprettynight-v2.0.ttf
-    - family: Question
-      fonts:
-        - asset: assets/fonts/title/question.ttf
-    - family: FamilyNameDate
-      fonts:
-        - asset: assets/fonts/title/familyname_date.ttf
-    - family: BMYeonsung
-      fonts:
-        - asset: assets/fonts/title/BMYEONSUNG_ttf.ttf
-    - family: NanumDasiSijakhae
-      fonts:
-        - asset: assets/fonts/title/NanumSongeulssiDasiSijakhae.ttf
+        - asset: assets/fonts/cafe24/Cafe24Oneprettynight-v2.0.ttf

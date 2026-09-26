@@ -1352,6 +1352,7 @@ class DailyAnswerItemResult {
     required this.content,
     this.imageUrl,
     required this.isMe,
+    this.createdAt,
   });
 
   final int answerId;
@@ -1361,6 +1362,10 @@ class DailyAnswerItemResult {
   final String content;
   final String? imageUrl;
   final bool isMe;
+
+  /// VER2 shows answer times and "먼저 도착한 답변" ordering.
+  /// Optional until the backend adds `createdAt` (BACKEND_API_TODO.md).
+  final DateTime? createdAt;
 
   String get roleLabel =>
       FamilyMemberResult.labelFor(role: role, birthOrder: birthOrder);
@@ -1374,8 +1379,14 @@ class DailyAnswerItemResult {
       content: json['content'] as String? ?? '',
       imageUrl: json['imageUrl'] as String?,
       isMe: json['isMe'] as bool? ?? false,
+      createdAt: _parseOptionalDateTime(json['createdAt']),
     );
   }
+}
+
+DateTime? _parseOptionalDateTime(Object? raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  return DateTime.tryParse(raw)?.toLocal();
 }
 
 class MonthDailyQuestionsResult {
@@ -1410,6 +1421,7 @@ class TodayDailyQuestionResult {
     this.questionId,
     this.content,
     this.category,
+    this.sequenceNumber,
   });
 
   final String status;
@@ -1419,6 +1431,10 @@ class TodayDailyQuestionResult {
   final int? questionId;
   final String? content;
   final String? category;
+
+  /// "#128" on the VER2 question hero — the family's Nth question.
+  /// Optional until the backend adds it (BACKEND_API_TODO.md).
+  final int? sequenceNumber;
 
   bool get isReady => status == 'READY' && (content?.isNotEmpty ?? false);
   bool get isWaiting => !isReady;
@@ -1436,6 +1452,7 @@ class TodayDailyQuestionResult {
       questionId: json['questionId'] as int?,
       content: json['content'] as String?,
       category: json['category'] as String?,
+      sequenceNumber: json['sequenceNumber'] as int?,
     );
   }
 }
@@ -1472,6 +1489,7 @@ class FamilyMemberResult {
     required this.role,
     this.birthOrder,
     required this.isMe,
+    this.isCreator,
   });
 
   final int userId;
@@ -1479,12 +1497,17 @@ class FamilyMemberResult {
   final int? birthOrder;
   final bool isMe;
 
+  /// "만든 사람" badge. Optional until the backend adds it
+  /// (BACKEND_API_TODO.md); null means unknown.
+  final bool? isCreator;
+
   factory FamilyMemberResult.fromJson(Map<String, dynamic> json) {
     return FamilyMemberResult(
       userId: json['userId'] as int? ?? 0,
       role: json['role'] as String? ?? '',
       birthOrder: json['birthOrder'] as int?,
       isMe: json['isMe'] as bool? ?? false,
+      isCreator: json['isCreator'] as bool?,
     );
   }
 
@@ -1493,6 +1516,7 @@ class FamilyMemberResult {
         'role': role,
         'birthOrder': birthOrder,
         'isMe': isMe,
+        if (isCreator != null) 'isCreator': isCreator,
       };
 
   /// 아빠 / 엄마 / 첫째 아들 / 둘째 딸 ...

@@ -1,112 +1,118 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:hrhb_frontend/services/email_auth_service.dart';
+import 'package:hrhb_frontend/theme/text.dart';
+import 'package:hrhb_frontend/theme/tokens.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_basics.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
 
-import 'auth_form_widgets.dart';
+import 'auth_scaffold.dart';
 import 'login_screen.dart';
 
+/// 07 가입 ③ 비밀번호.
 class EmailSignupPasswordScreen extends StatefulWidget {
-  const EmailSignupPasswordScreen({
-    super.key,
-    required this.email,
-    required this.signupToken,
-  });
+  const EmailSignupPasswordScreen({super.key, required this.email, required this.signupToken});
 
   final String email;
   final String signupToken;
 
   @override
-  State<EmailSignupPasswordScreen> createState() =>
-      _EmailSignupPasswordScreenState();
+  State<EmailSignupPasswordScreen> createState() => _EmailSignupPasswordScreenState();
 }
 
 class _EmailSignupPasswordScreenState extends State<EmailSignupPasswordScreen> {
-  final _passwordController = TextEditingController();
-  final _confirmController = TextEditingController();
-  final _emailAuth = EmailAuthService();
+  final _pw = TextEditingController();
+  final _pw2 = TextEditingController();
+  final _auth = EmailAuthService();
   bool _loading = false;
+  String? _error;
 
   @override
   void dispose() {
-    _passwordController.dispose();
-    _confirmController.dispose();
+    _pw.dispose();
+    _pw2.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final password = _passwordController.text;
-    final confirm = _confirmController.text;
-    if (password.length < 8) {
-      _showMessage('비밀번호는 8자 이상이어야 해요.');
-      return;
-    }
-    if (password != confirm) {
-      _showMessage('비밀번호 확인이 일치하지 않아요.');
-      return;
-    }
+  bool get _lenOk => _pw.text.length >= 8;
+  bool get _sameOk => _pw.text.isNotEmpty && _pw.text == _pw2.text;
 
-    setState(() => _loading = true);
+  Future<void> _register() async {
+    if (!_lenOk || !_sameOk) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      await _emailAuth.register(
+      await _auth.register(
         signupToken: widget.signupToken,
-        password: password,
-        passwordConfirm: confirm,
+        password: _pw.text,
+        passwordConfirm: _pw2.text,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('회원가입이 완료됐어요. 로그인해 주세요.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      final nav = Navigator.of(context, rootNavigator: true);
+      nav.pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => LoginScreen(prefillEmail: widget.email)),
         (_) => false,
       );
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage('회원가입에 실패했습니다.\n$error');
+      HaruToast.show(nav.context, '가입을 마쳤어요. 로그인해 주세요');
+    } catch (_) {
+      if (mounted) setState(() => _error = '가입하지 못했어요. 잠시 후 다시 시도해 주세요.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
-  }
+  Widget _rule(String label, bool ok) => Row(
+        children: [
+          Icon(LucideIcons.check, size: 16, color: ok ? HaruColors.statusPositive : HaruColors.dsInkFaint),
+          const SizedBox(width: 6),
+          Text(label, style: haruText(14, color: ok ? HaruColors.statusPositive : HaruColors.dsInkFaint)),
+        ],
+      );
 
   @override
   Widget build(BuildContext context) {
-    return AuthFormScaffold(
-      title: '비밀번호 설정',
-      subtitle: '${widget.email}\n로그인에 사용할 비밀번호를 입력해주세요.',
-      onBack: () => Navigator.of(context).pop(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AuthTextField(
-            controller: _passwordController,
-            hintText: '비밀번호 (8자 이상)',
-            obscureText: true,
-            autofillHints: const [AutofillHints.newPassword],
+    return AuthPage(
+      children: [
+        const AuthStepIndicator(step: 3),
+        const AuthTitle(title: '비밀번호를 정해 주세요', description: '로그인할 때 사용해요.'),
+        Gap(children: [
+          HaruTextField(
+            label: '비밀번호',
+            controller: _pw,
+            hint: '8자 이상',
+            obscure: true,
+            onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 12),
-          AuthTextField(
-            controller: _confirmController,
-            hintText: '비밀번호 확인',
-            obscureText: true,
-            autofillHints: const [AutofillHints.newPassword],
+          HaruTextField(
+            label: '비밀번호 확인',
+            controller: _pw2,
+            hint: '한 번 더 입력',
+            obscure: true,
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _register(),
           ),
-          const SizedBox(height: 18),
-          AuthPrimaryButton(
-            label: '확인',
+          Column(
+            children: [
+              _rule('8자 이상', _lenOk),
+              const SizedBox(height: 6),
+              _rule('두 비밀번호가 같아요', _sameOk),
+            ],
+          ),
+          if (_error != null) HaruFieldError(_error!, icon: LucideIcons.circleAlert),
+          HaruButton(
+            label: '가입 완료',
+            size: HaruButtonSize.lg,
+            fullWidth: true,
             loading: _loading,
-            onPressed: _submit,
+            onPressed: _lenOk && _sameOk ? _register : null,
           ),
-        ],
-      ),
+        ]),
+      ],
     );
   }
 }
