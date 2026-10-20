@@ -1,29 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:hrhb_frontend/data/authed_call.dart';
 import 'package:hrhb_frontend/data/family_context.dart';
 import 'package:hrhb_frontend/data/pending/pending_api.dart';
 import 'package:hrhb_frontend/data/pending/pending_models.dart';
 import 'package:hrhb_frontend/services/api_client.dart';
+import 'package:hrhb_frontend/services/media_save_service.dart';
 import 'package:hrhb_frontend/theme/text.dart';
 import 'package:hrhb_frontend/theme/tokens.dart';
 import 'package:hrhb_frontend/utils/korean.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_decor.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_family.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_layout.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_photos.dart';
 import 'package:hrhb_frontend/widgets/haru/pressable.dart';
 
+import '../answers/family_answers_page.dart';
 import '../answers/question_ref.dart';
-import '../answers/write_answer_page.dart';
-import '../home/home_sheets.dart';
 import '../shell/home_shell.dart';
-import 'answer_photos_screen.dart';
-import 'day_detail_screen.dart';
 
-enum _ArchiveTab { list, photos, report }
-
-/// 기록 — 날짜별 / 사진 / 리포트.
+/// 기록 — 날짜별 · 사진 · 리포트.
 class ArchiveScreen extends StatefulWidget {
   const ArchiveScreen({super.key});
 
@@ -31,17 +29,43 @@ class ArchiveScreen extends StatefulWidget {
   State<ArchiveScreen> createState() => _ArchiveScreenState();
 }
 
+class _MonthData {
+  _MonthData({
+    required this.questions,
+    required this.status,
+    required this.calendar,
+  });
+
+  final List<TodayDailyQuestionResult> questions;
+  final Map<DateTime, Set<int>> status;
+  final Map<DateTime, DiaryCalendarDayResult> calendar;
+}
+
 class _ArchiveScreenState extends State<ArchiveScreen> {
-  _ArchiveTab _tab = _ArchiveTab.list;
-  bool? _todayMine;
-  QuestionRef? _todayQuestion;
+  final _api = ApiClient();
+  final _today = dateOnly(DateTime.now());
+  int _seg = 0;
+  late int _y = _today.year;
+  late int _m = _today.month;
+
+  _MonthData? _data;
+  bool _error = false;
   HomeShellState? _shell;
-  final _listKey = GlobalKey<_DateListState>();
+
+  final _photos = <PhotoItem>[];
+  int _photoTotal = 0;
+  int _photoPage = 0;
+  bool _photoMore = true;
+  bool _photoBusy = false;
+  bool _photoError = false;
+  bool _photosStarted = false;
+
+  bool get _isThisMonth => _y == _today.year && _m == _today.month;
 
   @override
   void initState() {
     super.initState();
-    _checkToday();
+    _load();
   }
 
   @override
@@ -49,947 +73,671 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     super.didChangeDependencies();
     final shell = HomeShellScope.maybeOf(context);
     if (shell != _shell) {
-      _shell?.refreshTick.removeListener(_checkToday);
+      _shell?.refreshTick.removeListener(_onChanged);
       _shell = shell;
-      _shell?.refreshTick.addListener(_checkToday);
+      _shell?.refreshTick.addListener(_onChanged);
     }
   }
 
   @override
   void dispose() {
-    _shell?.refreshTick.removeListener(_checkToday);
+    _shell?.refreshTick.removeListener(_onChanged);
     super.dispose();
   }
 
-  /// Drives the floating "오늘의 답변 남기기" button.
-  Future<void> _checkToday() async {
-    try {
-      final api = ApiClient();
-      final today = QuestionRef.fromResult(await AuthedCall.run(api.fetchTodayDailyQuestion));
-      var mine = true;
-      if (today.isReady) {
-        final list = await AuthedCall.run(
-          (t) => api.fetchDailyAnswers(accessToken: t, dailyQuestionId: today.dailyQuestionId!),
-        );
-        mine = list.answers.any((a) => a.isMe);
-      }
-      if (mounted) {
-        setState(() {
-          _todayQuestion = today;
-          _todayMine = mine;
-        });
-      }
-    } catch (_) {}
+  void _onChanged() {
+    _load();
+    if (_photosStarted) _resetPhotos();
   }
 
-  Future<void> _writeToday() async {
-    final q = _todayQuestion;
-    if (q == null || !q.isReady) return;
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => WriteAnswerPage(question: q)),
-    );
-    if (saved != true || !mounted) return;
-    await _checkToday();
-    _listKey.currentState?.reload();
-    if (!mounted) return;
-    await afterAnswerSaved(context, firstAnswer: true, isToday: true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final showFab = _todayMine == false && (_todayQuestion?.isReady ?? false);
-    return Scaffold(
-      backgroundColor: HaruColors.canvas,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                SizedBox(
-                  height: 56,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('기록', style: HaruType.screenTitle),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                  child: PillSegment<_ArchiveTab>(
-                    items: const [
-                      (_ArchiveTab.list, '날짜별'),
-                      (_ArchiveTab.photos, '사진'),
-                      (_ArchiveTab.report, '리포트'),
-                    ],
-                    selected: _tab,
-                    onChanged: (t) => setState(() => _tab = t),
-                  ),
-                ),
-                Expanded(
-                  child: IndexedStack(
-                    index: _tab.index,
-                    children: [
-                      _DateList(key: _listKey),
-                      const _PhotosPane(),
-                      const _ReportPane(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (showFab)
-              Positioned(
-                right: 16,
-                bottom: 100,
-                child: _PopFab(onTap: _writeToday),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PopFab extends StatelessWidget {
-  const _PopFab({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 800),
-      curve: const Interval(0.44, 1, curve: HaruMotion.pop),
-      builder: (_, t, c) => Opacity(
-        opacity: t.clamp(0, 1),
-        child: Transform.scale(scale: 0.6 + 0.4 * t, child: c),
-      ),
-      child: Pressable(
-        onTap: onTap,
-        child: Container(
-          height: 52,
-          padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
-          decoration: BoxDecoration(
-            color: HaruColors.ink,
-            borderRadius: BorderRadius.circular(HaruRadius.full),
-            boxShadow: HaruShadows.fab,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(LucideIcons.pencilLine, size: 18, color: Colors.white),
-              const SizedBox(width: 8),
-              Text('오늘의 답변 남기기', style: haruText(16, weight: FontWeight.w600, color: Colors.white)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 날짜별
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _DateRow {
-  const _DateRow({
-    required this.date,
-    required this.question,
-    required this.answered,
-    required this.weather,
-    required this.delta,
-  });
-
-  final DateTime date;
-  final String question;
-  final Set<int> answered;
-  final HaruWeather? weather;
-  final double? delta;
-}
-
-class _DateList extends StatefulWidget {
-  const _DateList({super.key});
-
-  @override
-  State<_DateList> createState() => _DateListState();
-}
-
-class _DateListState extends State<_DateList> {
-  final _api = ApiClient();
-  final _today = dateOnly(DateTime.now());
-  late int _y = _today.year;
-  late int _m = _today.month;
-  List<_DateRow>? _rows;
-  bool _error = false;
-
-  @override
-  void initState() {
-    super.initState();
-    reload();
-  }
-
-  Future<void> reload() async {
-    setState(() {
-      _error = false;
-      _rows = null;
-    });
+  Future<void> _load() async {
+    setState(() => _error = false);
+    final y = _y, m = _m;
     try {
       await FamilyContext.instance.ensure();
-      final y = _y, m = _m;
       final questionsF = AuthedCall.run(
         (t) => _api.fetchMonthDailyQuestions(accessToken: t, year: y, month: m),
       );
       final statusF = PendingApi.instance
           .fetchAnswerStatus(year: y, month: m)
-          .catchError((_) => <AnswerStatusDay>[]);
+          .catchError((Object _) => <AnswerStatusDay>[]);
       final calendarF = AuthedCall.run(
         (t) => _api.fetchDiaryCalendar(accessToken: t, year: y, month: m),
-      ).then<DiaryCalendarResult?>((v) => v).catchError((_) => null);
-      final tempF = AuthedCall.run(_api.fetchFamilyTemperature)
-          .then<FamilyTemperatureResult?>((v) => v)
-          .catchError((_) => null);
-
+      ).then<DiaryCalendarResult?>((v) => v).catchError((Object _) => null);
       final questions = await questionsF;
-      final status = {for (final s in await statusF) s.date: s.answeredUserIds};
-      final calendar = await calendarF;
-      final temp = await tempF;
-      final weather = {
-        for (final d in calendar?.days ?? const <DiaryCalendarDayResult>[])
-          dateOnly(d.date): HaruWeather.fromWire(d.familyWeather),
+      final status = {for (final s in await statusF) dateOnly(s.date): s.answeredUserIds};
+      final calendar = {
+        for (final d in (await calendarF)?.days ?? const <DiaryCalendarDayResult>[]) dateOnly(d.date): d,
       };
-      final deltas = {
-        for (final c in temp?.recentChanges ?? const <FamilyTemperatureChangeResult>[])
-          dateOnly(c.date): c.delta,
-      };
-      final rows = <_DateRow>[
-        for (final q in questions.items)
-          if (q.isReady && !dateOnly(q.date).isAfter(_today))
-            _DateRow(
-              date: dateOnly(q.date),
-              question: q.content ?? '',
-              answered: status[dateOnly(q.date)] ?? const {},
-              weather: weather[dateOnly(q.date)],
-              delta: deltas[dateOnly(q.date)],
-            ),
-      ]..sort((a, b) => b.date.compareTo(a.date));
-      if (mounted && y == _y && m == _m) setState(() => _rows = rows);
+      if (!mounted || y != _y || m != _m) return;
+      setState(() => _data = _MonthData(questions: questions.items, status: status, calendar: calendar));
     } catch (_) {
       if (mounted) setState(() => _error = true);
     }
   }
 
-  Future<void> _pickMonth() async {
-    final picked = await showYearMonthSheet(context, year: _y, month: _m);
-    if (picked == null) return;
-    final (y, m) = picked;
+  Future<void> _shiftMonth(int delta) async {
+    final next = DateTime(_y, _m + delta);
+    if (next.isAfter(DateTime(_today.year, _today.month))) return;
     setState(() {
-      _y = y;
-      _m = m;
+      _y = next.year;
+      _m = next.month;
+      _data = null;
     });
-    reload();
+    await _load();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final fam = FamilyContext.instance.value;
-    final members = fam?.members ?? const <MemberLook>[];
-    final rows = _rows;
-    return RefreshIndicator(
-      color: HaruColors.primary,
-      onRefresh: reload,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, kTabBarClearance),
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: SizedBox(
-              height: 40,
-              child: Row(
-                children: [
-                  Pressable(
-                    onTap: _pickMonth,
-                    child: Row(
-                      children: [
-                        Text('$_y년 $_m월', style: haruText(15, weight: FontWeight.w700)),
-                        const SizedBox(width: 4),
-                        const Icon(LucideIcons.chevronDown, size: 16, color: HaruColors.ink),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  Text('질문 · 일지 · 온도', style: haruText(12, color: HaruColors.inkSecondary)),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (_error)
-            HaruErrorState(onRetry: reload)
-          else if (rows == null)
-            const Padding(
-              padding: EdgeInsets.all(40),
-              child: Center(child: CircularProgressIndicator(color: HaruColors.primary)),
-            )
-          else if (rows.isEmpty)
-            const CeramicNote('이 달에는 도착한 질문이 없어요')
-          else
-            Container(
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(HaruRadius.xl),
-                boxShadow: HaruShadows.s1,
-              ),
-              child: Column(
-                children: [
-                  for (var k = 0; k < rows.length; k++)
-                    HaruRise(
-                      delay: Duration(milliseconds: (k.clamp(0, 12)) * 30),
-                      duration: const Duration(milliseconds: 400),
-                      child: _row(rows[k], members, first: k == 0),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
+  Future<void> _resetPhotos() async {
+    _photos.clear();
+    _photoPage = 0;
+    _photoMore = true;
+    _photoError = false;
+    await _morePhotos();
   }
 
-  Widget _row(_DateRow r, List<MemberLook> members, {required bool first}) {
-    final d = r.delta;
-    final deltaText = d == null ? '' : '${d > 0 ? '+' : d < 0 ? '−' : '±'}${d.abs().toStringAsFixed(1)}°';
-    final deltaColor = d == null || d == 0
-        ? HaruColors.inkQuiet
-        : d > 0
-            ? HaruColors.tempRiseText
-            : HaruColors.tempDropText;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => DayDetailScreen(date: r.date)),
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: first ? Colors.transparent : HaruColors.hairline),
-          ),
-        ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 34,
-              child: Column(
-                children: [
-                  Text('${r.date.day}', style: haruText(18, weight: FontWeight.w700, height: 1.3)),
-                  Text(
-                    sameDay(r.date, _today) ? '오늘' : dowOf(r.date),
-                    style: haruText(11, color: HaruColors.inkSecondary, height: 1.3),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    r.question,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: haruText(15, weight: FontWeight.w500, height: 1.4),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      for (final m in members) ...[
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: r.answered.contains(m.userId) ? HaruColors.house : HaruColors.dotIdle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(0, 0, 8, 0),
-                        child: Text(
-                          '${r.answered.length}/${members.length}',
-                          style: haruText(12, color: HaruColors.inkSecondary, height: 1.2),
-                        ),
-                      ),
-                      if (r.weather != null)
-                        WeatherTile(
-                          weather: r.weather,
-                          size: 22,
-                          radius: 6,
-                          iconSize: 13,
-                          iconColor: HaruColors.ink,
-                        ),
-                      if (deltaText.isNotEmpty) ...[
-                        const SizedBox(width: 4),
-                        Text(
-                          deltaText,
-                          style: haruText(12, weight: FontWeight.w700, color: deltaColor, height: 1.2),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            const Icon(LucideIcons.chevronRight, size: 18, color: HaruColors.inkChevron),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 사진
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _PhotosPane extends StatefulWidget {
-  const _PhotosPane();
-
-  @override
-  State<_PhotosPane> createState() => _PhotosPaneState();
-}
-
-class _PhotosPaneState extends State<_PhotosPane> {
-  final _feed = AnswerPhotoFeed();
-  bool _loading = true;
-  bool _error = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = false;
-    });
+  Future<void> _morePhotos() async {
+    if (_photoBusy || !_photoMore) return;
+    _photosStarted = true;
+    setState(() => _photoBusy = true);
     try {
-      await _feed.reset();
+      final page = await AuthedCall.run(
+        (t) => _api.fetchGalleryAnswerPhotos(accessToken: t, page: _photoPage, size: 21),
+      );
+      final fam = FamilyContext.instance.value;
+      for (final p in page.items) {
+        final look = fam?.members
+            .where((mm) =>
+                mm.role == MemberLook.roleFor(p.role) &&
+                (p.birthOrder == null || mm.label == p.authorLabel))
+            .firstOrNull;
+        _photos.add(PhotoItem(
+          url: p.imageUrl,
+          date: '${p.date.month}/${p.date.day}',
+          who: look?.short ?? MemberLook.roleFor(p.role),
+          caption: p.questionContent,
+          tint: HaruColors.tints[_photos.length % HaruColors.tints.length],
+        ));
+      }
+      _photoTotal = page.totalCount;
+      _photoMore = page.hasMore;
+      _photoPage++;
     } catch (_) {
-      _error = true;
+      _photoError = true;
+    } finally {
+      if (mounted) setState(() => _photoBusy = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _more() async {
-    try {
-      await _feed.more();
-      if (mounted) setState(() {});
-    } catch (_) {}
+  Future<void> _openDay(DateTime date, TodayDailyQuestionResult q) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => FamilyAnswersPage(question: QuestionRef.fromResult(q))),
+    );
   }
+
+  Future<void> _openPhoto(int i) => PhotoViewerPage.open(
+        context,
+        items: _photos,
+        index: i,
+        onSave: (item) async {
+          try {
+            await const MediaSaveService().saveImageUrls([item.url]);
+            if (mounted) HaruToast.show(context, '사진을 저장했어요.');
+          } catch (e) {
+            if (mounted) HaruToast.show(context, e is StateError ? e.message : '사진을 저장하지 못했어요.');
+          }
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: HaruColors.primary));
-    }
-    if (_error) return HaruErrorState(onRetry: _load);
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
-        if (n.metrics.extentAfter < 400) _more();
+        if (_seg == 1 && n.metrics.extentAfter < 400) _morePhotos();
         return false;
       },
       child: RefreshIndicator(
-        color: HaruColors.primary,
-        onRefresh: _load,
+        color: HaruColors.forest,
+        backgroundColor: HaruColors.ivory,
+        onRefresh: () async {
+          await _load();
+          if (_seg == 1) await _resetPhotos();
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, kTabBarClearance),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, kNavClearance),
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
+            Entrance(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: Text(
-                      '답변에 첨부된 사진 ${_feed.total}장',
-                      style: haruText(14, color: HaruColors.inkSecondary),
-                    ),
+                  const TabHeader(title: '우리 가족 기록'),
+                  const SizedBox(height: 14),
+                  _Segment(
+                    labels: const ['날짜별', '사진', '리포트'],
+                    index: _seg,
+                    onTap: (i) {
+                      setState(() => _seg = i);
+                      if (i == 1 && !_photosStarted) _resetPhotos();
+                    },
                   ),
-                  Pressable(
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const AnswerPhotosScreen(startSelecting: true),
-                      ),
-                    ),
-                    child: Container(
-                      height: 32,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: HaruColors.inkLine),
-                        borderRadius: BorderRadius.circular(HaruRadius.full),
-                      ),
-                      child: Text('선택', style: haruText(13, weight: FontWeight.w600)),
-                    ),
-                  ),
+                  ...switch (_seg) {
+                    0 => _list(),
+                    1 => _photoGrid(),
+                    _ => _report(),
+                  },
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            if (_feed.items.isEmpty)
-              const CeramicNote('아직 답변에 첨부된 사진이 없어요')
-            else
-              PhotoGrid(
-                items: _feed.items,
-                captions: true,
-                captionStyleVer2: true,
-                gap: 8,
-                radius: 12,
-                onTap: (i) => PhotoViewerPage.open(
-                  context,
-                  items: _feed.items,
-                  index: i,
-                  onSave: (item) => saveToDevice(context, [item.url]),
-                ),
-              ),
           ],
         ),
       ),
     );
   }
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 리포트
-// ─────────────────────────────────────────────────────────────────────────────
-
-enum _ReportMode { week, month }
-
-class _ReportPane extends StatefulWidget {
-  const _ReportPane();
-
-  @override
-  State<_ReportPane> createState() => _ReportPaneState();
-}
-
-class _ReportPaneState extends State<_ReportPane> {
-  _ReportMode _mode = _ReportMode.week;
-  WeeklyReport? _week;
-  MonthlyReport? _month;
-  bool _error = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  DateTime get _monday {
-    final t = dateOnly(DateTime.now());
-    return t.subtract(Duration(days: t.weekday - 1));
-  }
-
-  Future<void> _load() async {
-    setState(() => _error = false);
-    try {
-      await FamilyContext.instance.ensure();
-      if (_mode == _ReportMode.week) {
-        final r = await PendingApi.instance.fetchWeeklyReport(weekStart: _monday);
-        if (mounted) setState(() => _week = r);
-      } else {
-        final now = DateTime.now();
-        final r = await PendingApi.instance.fetchMonthlyReport(year: now.year, month: now.month);
-        if (mounted) setState(() => _month = r);
-      }
-    } catch (_) {
-      if (mounted) setState(() => _error = true);
-    }
-  }
-
-  String _diffText(int rate, int? prev, String than) {
-    if (prev == null) return '';
-    final d = rate - prev;
-    return '$than ${d.abs()}%p ${d >= 0 ? '올랐어요' : '내렸어요'}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isWeek = _mode == _ReportMode.week;
-    final now = DateTime.now();
-    final end = _monday.add(const Duration(days: 6));
-    final period = isWeek
-        ? '${_monday.month}.${_monday.day} – ${end.month}.${end.day}'
-        : '${now.year}년 ${now.month}월';
-    final ready = isWeek ? _week != null : _month != null;
-
-    return RefreshIndicator(
-      color: HaruColors.primary,
-      onRefresh: _load,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, kTabBarClearance),
+  Widget _monthNav() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 150,
-                child: PillSegment<_ReportMode>(
-                  items: const [(_ReportMode.week, '주간'), (_ReportMode.month, '월간')],
-                  selected: _mode,
-                  onChanged: (m) {
-                    setState(() => _mode = m);
-                    if ((m == _ReportMode.week ? _week : _month) == null) _load();
-                  },
-                ),
-              ),
-              const Spacer(),
-              Text(period, style: haruText(14, weight: FontWeight.w600, color: HaruColors.inkSecondary)),
-            ],
+          Pressable(
+            onTap: () => _shiftMonth(-1),
+            semanticLabel: '이전 달',
+            child: const Icon(Symbols.chevron_left_rounded, size: 24, color: HaruColors.forest),
           ),
-          const SizedBox(height: 12),
-          if (_error)
-            HaruErrorState(onRetry: _load)
-          else if (!ready)
-            const Padding(
-              padding: EdgeInsets.all(40),
-              child: Center(child: CircularProgressIndicator(color: HaruColors.primary)),
-            )
-          else
-            ..._content(isWeek),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 96),
+            child: Text('$_y년 $_m월', textAlign: TextAlign.center, style: hr(17, color: HaruColors.forest)),
+          ),
+          const SizedBox(width: 8),
+          Pressable(
+            onTap: _isThisMonth ? null : () => _shiftMonth(1),
+            semanticLabel: '다음 달',
+            child: Icon(
+              Symbols.chevron_right_rounded,
+              size: 24,
+              color: _isThisMonth ? HaruColors.inkFaint : HaruColors.forest,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  List<Widget> _content(bool isWeek) {
-    final fam = FamilyContext.instance.value;
-    final rate = isWeek ? _week!.answerRate : _month!.answerRate;
-    final prev = isWeek ? _week!.previousAnswerRate : _month!.previousAnswerRate;
-    final monthNo = _month?.month ?? DateTime.now().month;
-    final prevMonth = monthNo == 1 ? 12 : monthNo - 1;
-    final temps = isWeek ? _week!.temperatureChanges : _month!.temperatureChanges;
-    final sum = isWeek ? _week!.temperatureSum : _month!.temperatureSum;
-    final highlights = isWeek ? _week!.highlights : _month!.highlights;
+  Widget _message(String text, {VoidCallback? onTap}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Pressable(
+            onTap: onTap,
+            child: Text(text, textAlign: TextAlign.center, style: hr(15, color: HaruColors.inkMuted)),
+          ),
+        ),
+      );
 
+  // ── 날짜별 ─────────────────────────────────────────────────────────────
+
+  List<Widget> _list() {
+    final members = FamilyContext.instance.value?.members ?? const <MemberLook>[];
+    final data = _data;
+    final rows = data == null
+        ? <TodayDailyQuestionResult>[]
+        : (data.questions.where((q) => q.isReady && !dateOnly(q.date).isAfter(_today)).toList()
+          ..sort((a, b) => b.date.compareTo(a.date)));
     return [
-      _card(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text(
-            isWeek ? '이번 주 답변율 $rate%' : '$monthNo월 답변율 $rate%',
-            style: haruText(21, weight: FontWeight.w700, letterSpacing: -0.4),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _diffText(rate, prev, isWeek ? '지난주보다' : '$prevMonth월보다'),
-            style: haruText(13, color: HaruColors.inkSecondary),
-          ),
-          const SizedBox(height: 16),
-          if (isWeek)
-            _WeekMatrix(report: _week!, family: fam)
-          else
-            _MonthHeatmap(report: _month!),
-        ],
-      ),
-      const SizedBox(height: 12),
-      _card(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Expanded(
-                child: Text(
-                  isWeek ? '이번 주 온도 변화' : '$monthNo월 온도 변화',
-                  style: haruText(16, weight: FontWeight.w700),
-                ),
+      _monthNav(),
+      if (_error)
+        _message('기록을 불러오지 못했어요.\n눌러서 다시 시도해 주세요.', onTap: _load)
+      else if (data != null && rows.isEmpty)
+        _message('이 달에 도착한 질문이 없어요')
+      else
+        for (var i = 0; i < rows.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Entrance(
+              key: ValueKey('r$_y$_m$i'),
+              kind: EntranceKind.riseIn,
+              duration: const Duration(milliseconds: 450),
+              delay: stagger(i, 45),
+              child: _DateRow(
+                question: rows[i],
+                members: members,
+                answered: data!.status[dateOnly(rows[i].date)] ?? const {},
+                day: data.calendar[dateOnly(rows[i].date)],
+                onTap: () => _openDay(dateOnly(rows[i].date), rows[i]),
               ),
-              Text(
-                '합계 ${sum >= 0 ? '+' : '−'}${sum.abs().toStringAsFixed(1)}°C',
-                style: haruText(12, color: HaruColors.inkSecondary),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 12),
-          TempBarChart(
-            values: [for (final t in temps) t.delta],
-            labels: [for (final t in temps) '${t.date.month}/${t.date.day}'],
-          ),
-        ],
-      ),
-      for (final h in highlights) ...[
-        const SizedBox(height: 12),
-        _card(
-          padding: const EdgeInsets.all(16),
+    ];
+  }
+
+  // ── 사진 ───────────────────────────────────────────────────────────────
+
+  List<Widget> _photoGrid() {
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(2, 16, 2, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
           children: [
-            Row(
+            Expanded(child: Text('답변 사진 모아보기', style: hr(17, color: HaruColors.forest))),
+            Text('가족이 질문에 남긴 사진 $_photoTotal장', style: hr(14.5, color: HaruColors.inkMuted)),
+          ],
+        ),
+      ),
+      if (_photoError && _photos.isEmpty)
+        _message('사진을 불러오지 못했어요.\n눌러서 다시 시도해 주세요.', onTap: _resetPhotos)
+      else if (!_photoBusy && _photos.isEmpty)
+        _message('아직 질문에 남긴 사진이 없어요')
+      else
+        LayoutBuilder(
+          builder: (context, c) {
+            final w = (c.maxWidth - 12) / 3;
+            return Wrap(
+              spacing: 6,
+              runSpacing: 6,
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: switch (h.type) {
-                      'FIRST_RESPONDER' => HaruColors.accentButter,
-                      'LONGEST_ANSWER' => HaruColors.accentPink,
-                      _ => HaruColors.accentTeal,
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    switch (h.type) {
-                      'FIRST_RESPONDER' => LucideIcons.zap,
-                      'LONGEST_ANSWER' => LucideIcons.messageCircleHeart,
-                      _ => LucideIcons.star,
-                    },
-                    size: 20,
-                    color: HaruColors.ink,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(h.title, style: haruText(15, weight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text(
-                        h.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: haruText(13, color: HaruColors.inkSecondary),
+                for (var i = 0; i < _photos.length; i++)
+                  Entrance(
+                    key: ValueKey(_photos[i].url + i.toString()),
+                    kind: EntranceKind.pop,
+                    delay: stagger(i % 21, 30),
+                    // App-only tap (photo viewer); pressed like the album
+                    // covers (scale .95, transform 200ms ease).
+                    child: Pressable(
+                      onTap: () => _openPhoto(i),
+                      child: SizedBox(
+                        width: w,
+                        height: w,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              HaruNetImage(url: _photos[i].url, tint: _photos[i].tint, iconSize: 26),
+                              Positioned(
+                                left: 6,
+                                bottom: 5,
+                                child: Text(
+                                  '${_photos[i].who} · ${_photos[i].date}',
+                                  style: hrHand(14.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
+              ],
+            );
+          },
+        ),
+    ];
+  }
+
+  // ── 리포트 ─────────────────────────────────────────────────────────────
+
+  List<Widget> _report() {
+    final data = _data;
+    if (_error) return [_monthNav(), _message('리포트를 불러오지 못했어요.\n눌러서 다시 시도해 주세요.', onTap: _load)];
+    if (data == null) return [_monthNav()];
+    final memberCount = FamilyContext.instance.value?.members.length ?? 4;
+    final lastDay = DateTime(_y, _m + 1, 0).day;
+    var replies = 0, allTogether = 0;
+    for (final e in data.status.entries) {
+      if (e.key.year != _y || e.key.month != _m || e.key.isAfter(_today)) continue;
+      replies += e.value.length;
+      if (memberCount > 0 && e.value.length >= memberCount) allTogether++;
+    }
+    DiaryCalendarDayResult? warmest;
+    for (final d in data.calendar.values) {
+      if (d.date.isAfter(_today)) continue;
+      if (warmest == null || d.temperature > warmest.temperature) warmest = d;
+    }
+    final lead = DateTime(_y, _m, 1).weekday - 1; // Monday-first grid
+    final cells = <Widget>[
+      for (var i = 0; i < lead; i++) const SizedBox(),
+      for (var day = 1; day <= lastDay; day++)
+        _HeatCell(
+          day: day,
+          future: DateTime(_y, _m, day).isAfter(_today),
+          count: data.status[DateTime(_y, _m, day)]?.length ?? 0,
+          memberCount: memberCount,
+          index: lead + day - 1,
+        ),
+    ];
+    final warmW = warmest == null ? null : HaruWeather.fromWire(warmest.familyWeather);
+    return [
+      _monthNav(),
+      const SizedBox(height: 16),
+      Row(
+        children: [
+          Expanded(child: _StatCard(label: '이번 달 답장', value: '$replies', unit: '개')),
+          const SizedBox(width: 10),
+          Expanded(child: _StatCard(label: '모두 함께 답한 날', value: '$allTogether', unit: '일')),
+        ],
+      ),
+      const SizedBox(height: 10),
+      HrCard(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SproutHeading('$_m월 답장 달력'),
+            const SizedBox(height: 12),
+            GridView.count(
+              crossAxisCount: 7,
+              mainAxisSpacing: 5,
+              crossAxisSpacing: 5,
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              children: cells,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text('0명', style: hr(13.5, color: HaruColors.inkMuted)),
+                for (final c in HaruColors.heat) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(4)),
+                  ),
+                ],
+                const SizedBox(width: 4),
+                Text('$memberCount명', style: hr(13.5, color: HaruColors.inkMuted)),
               ],
             ),
           ],
         ),
+      ),
+      if (warmest != null) ...[
+        const SizedBox(height: 10),
+        HrCard(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(color: HaruColors.yellow, borderRadius: BorderRadius.circular(14)),
+                child: const Icon(Symbols.device_thermostat_rounded, size: 28, color: HaruColors.warmIcon),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('가장 따뜻했던 날', style: hr(14.5, color: HaruColors.inkMuted)),
+                    Text(
+                      '${warmest.date.month}/${warmest.date.day} (${dowOf(warmest.date)})'
+                      '${warmW == null ? '' : ' · ${warmW.label}'}',
+                      style: hr(17, color: HaruColors.forest),
+                    ),
+                  ],
+                ),
+              ),
+              Text('${warmest.temperature.toStringAsFixed(1)}°C', style: hrHand(24, color: HaruColors.tempText)),
+            ],
+          ),
+        ),
       ],
     ];
   }
-
-  Widget _card({required EdgeInsets padding, required List<Widget> children}) => Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(HaruRadius.xl),
-          boxShadow: HaruShadows.s1,
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
-      );
 }
 
-class _WeekMatrix extends StatelessWidget {
-  const _WeekMatrix({required this.report, required this.family});
+class _Segment extends StatelessWidget {
+  const _Segment({required this.labels, required this.index, required this.onTap});
 
-  final WeeklyReport report;
-  final FamilySnapshot? family;
+  final List<String> labels;
+  final int index;
+  final ValueChanged<int> onTap;
 
   @override
   Widget build(BuildContext context) {
-    Widget row(Widget label, List<Widget> cells) => Row(
-          children: [
-            SizedBox(width: 36, child: label),
-            for (final c in cells) ...[
-              const SizedBox(width: 6),
-              Expanded(child: c),
-            ],
-          ],
-        );
-    return Column(
-      children: [
-        row(const SizedBox(), [
-          for (final d in weekdayShort)
-            Text(d, textAlign: TextAlign.center, style: haruText(11, color: HaruColors.inkSecondary)),
-        ]),
-        for (var ri = 0; ri < report.rows.length; ri++) ...[
-          const SizedBox(height: 6),
-          row(
-            Text(
-              family?.byUserId(report.rows[ri].userId)?.short ?? '',
-              style: haruText(12, weight: FontWeight.w600, color: HaruColors.inkSecondary),
-            ),
-            [
-              for (var ci = 0; ci < 7; ci++)
-                _Pop(
-                  delay: Duration(milliseconds: (ri + ci) * 40),
-                  child: _cell(ci < report.rows[ri].days.length ? report.rows[ri].days[ci] : null),
-                ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _cell(bool? answered) {
-    if (answered == null) {
-      return CustomPaint(
-        painter: _DashedRRect(),
-        child: const SizedBox(height: 28),
-      );
-    }
     return Container(
-      height: 28,
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: answered ? HaruColors.house : HaruColors.ceramic,
-        borderRadius: BorderRadius.circular(7),
+        color: HaruColors.ivory,
+        border: Border.all(color: HaruColors.hairline),
+        borderRadius: BorderRadius.circular(HaruRadius.full),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            Expanded(
+              child: Pressable(
+                onTap: () => onTap(i),
+                scale: .96,
+                semanticLabel: labels[i],
+                // Only `background` transitions; the pressed scale snaps.
+                duration: Duration.zero,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.ease,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: index == i ? HaruColors.forest : Colors.transparent,
+                    borderRadius: BorderRadius.circular(HaruRadius.full),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(labels[i], style: hr(16, color: index == i ? Colors.white : HaruColors.inkMuted)),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
 }
 
-class _DashedRRect extends CustomPainter {
+class _DateRow extends StatelessWidget {
+  const _DateRow({
+    required this.question,
+    required this.members,
+    required this.answered,
+    required this.day,
+    required this.onTap,
+  });
+
+  final TodayDailyQuestionResult question;
+  final List<MemberLook> members;
+  final Set<int> answered;
+  final DiaryCalendarDayResult? day;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = dateOnly(question.date);
+    final w = HaruWeather.fromWire(day?.familyWeather);
+    final t = day?.temperature;
+    final count = members.where((m) => answered.contains(m.userId)).length;
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: '${d.month}월 ${d.day}일 기록',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: HaruColors.ivory,
+          border: Border.all(color: HaruColors.hairline),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 46,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${d.month}/${d.day}', style: hrHand(19, height: 1.1)),
+                  Text(dowOf(d), style: hr(13.5, color: HaruColors.inkMuted)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            // `border-left: 1.2px dashed` sits on the text block, so the dash
+            // spans that block's height (not the whole row).
+            Expanded(
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const _VDash(),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            question.content ?? '',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: hrQuestion(15, height: 1.4),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              for (final m in members) ...[
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: answered.contains(m.userId) ? HaruColors.forest : HaruColors.hairline,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              const SizedBox(width: 4),
+                              Text('$count/${members.length} 답장', style: hr(13.5, color: HaruColors.inkMuted)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 42,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(w?.icon ?? Symbols.remove_rounded, size: 22, color: w?.color ?? HaruColors.inkFaint),
+                  const SizedBox(height: 2),
+                  Text(
+                    t == null ? '–' : '${t.toStringAsFixed(1)}°',
+                    style: hrHand(14.5, color: t == null ? HaruColors.inkFaint : tempColor(t)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// `border-left: 1.2px dashed #C5D9B8`.
+class _VDash extends StatelessWidget {
+  const _VDash();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 1.2,
+      child: CustomPaint(painter: _VDashPainter()),
+    );
+  }
+}
+
+class _VDashPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = HaruColors.handle
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    final path = Path()
-      ..addRRect(RRect.fromRectAndRadius(
-        Offset.zero & size,
-        const Radius.circular(7),
-      ).deflate(0.5));
-    for (final metric in path.computeMetrics()) {
-      var d = 0.0;
-      while (d < metric.length) {
-        canvas.drawPath(metric.extractPath(d, d + 3), paint);
-        d += 6;
-      }
+    final p = Paint()..color = HaruColors.fieldBorder;
+    for (var y = 0.0; y < size.height; y += 7) {
+      canvas.drawRect(Rect.fromLTWH(0, y, size.width, 4), p);
     }
   }
 
   @override
-  bool shouldRepaint(_DashedRRect oldDelegate) => false;
+  bool shouldRepaint(_VDashPainter old) => false;
 }
 
-class _MonthHeatmap extends StatelessWidget {
-  const _MonthHeatmap({required this.report});
+class _StatCard extends StatelessWidget {
+  const _StatCard({required this.label, required this.value, required this.unit});
 
-  final MonthlyReport report;
+  final String label;
+  final String value;
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
-    final first = DateTime(report.year, report.month, 1);
-    final lead = first.weekday - 1; // Monday-first
-    final cells = <Widget>[
-      for (var i = 0; i < lead; i++) const SizedBox(height: 34),
-      for (var i = 0; i < report.days.length; i++)
-        _Pop(delay: Duration(milliseconds: i * 12), child: _day(report.days[i])),
-    ];
-    return Column(
-      children: [
-        Row(
-          children: [
-            for (var i = 0; i < 7; i++) ...[
-              if (i > 0) const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  weekdayShort[i],
-                  textAlign: TextAlign.center,
-                  style: haruText(11, color: HaruColors.inkSecondary),
-                ),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 8),
-        LayoutBuilder(builder: (_, c) {
-          final w = (c.maxWidth - 6 * 6) / 7;
-          return Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [for (final cell in cells) SizedBox(width: w, child: cell)],
-          );
-        }),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Text('적음', style: haruText(11, color: HaruColors.inkSecondary)),
-            for (final c in HaruColors.heatmap) ...[
-              const SizedBox(width: 4),
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3)),
-              ),
-            ],
-            const SizedBox(width: 4),
-            Text('많음', style: haruText(11, color: HaruColors.inkSecondary)),
-          ],
-        ),
-      ],
+    return HrCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: hr(14.5, color: HaruColors.inkMuted)),
+          Text.rich(
+            TextSpan(children: [
+              TextSpan(text: value),
+              TextSpan(text: unit, style: hrHand(16)),
+            ]),
+            style: hrHand(34, height: 1.1),
+          ),
+        ],
+      ),
     );
   }
+}
 
-  Widget _day(ReportDayCount d) {
-    final n = d.answeredCount;
-    if (n == null) {
-      return SizedBox(
-        height: 34,
-        child: Center(
-          child: Text(
-            '${d.date.day}',
-            style: haruText(11, weight: FontWeight.w600, color: const Color(0x4D2B2016)),
-          ),
-        ),
-      );
-    }
-    final members = report.memberCount == 0 ? 4 : report.memberCount;
-    final level = (n / members * 4).round().clamp(0, 4);
-    return Container(
-      height: 34,
-      alignment: Alignment.center,
+class _HeatCell extends StatelessWidget {
+  const _HeatCell({
+    required this.day,
+    required this.future,
+    required this.count,
+    required this.memberCount,
+    required this.index,
+  });
+
+  final int day;
+  final bool future;
+  final int count;
+  final int memberCount;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    // 0 … 4 levels, scaled for families that aren't four people.
+    final level = memberCount <= 0 ? 0 : (count / memberCount * 4).round().clamp(0, 4);
+    final cell = Container(
       decoration: BoxDecoration(
-        color: HaruColors.heatmap[level],
+        color: future ? Colors.transparent : HaruColors.heat[level],
         borderRadius: BorderRadius.circular(8),
       ),
+      alignment: Alignment.center,
       child: Text(
-        '${d.date.day}',
-        style: haruText(
-          11,
-          weight: FontWeight.w600,
-          color: level >= 3 ? Colors.white : HaruColors.inkSecondary,
-        ),
+        '$day',
+        style: hrHand(14.5, color: !future && level >= 3 ? Colors.white : HaruColors.inkMuted),
       ),
     );
-  }
-}
-
-class _Pop extends StatelessWidget {
-  const _Pop({required this.child, required this.delay});
-
-  final Widget child;
-  final Duration delay;
-
-  @override
-  Widget build(BuildContext context) {
-    const dur = Duration(milliseconds: 380);
-    final total = delay + dur;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: total,
-      curve: Interval(delay.inMicroseconds / total.inMicroseconds, 1, curve: HaruMotion.pop),
-      builder: (_, t, c) => Opacity(
-        opacity: t.clamp(0, 1),
-        child: Transform.scale(scale: 0.6 + 0.4 * t, child: c),
-      ),
-      child: child,
+    return Entrance(
+      kind: EntranceKind.pop,
+      duration: const Duration(milliseconds: 400),
+      delay: stagger(index, 14),
+      child: future ? DashedBox(color: HaruColors.hairline, radius: 8, child: cell) : cell,
     );
   }
 }

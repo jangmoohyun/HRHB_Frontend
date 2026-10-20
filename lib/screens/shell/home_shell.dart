@@ -1,32 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:hrhb_frontend/data/app_prefs.dart';
 import 'package:hrhb_frontend/data/authed_call.dart';
 import 'package:hrhb_frontend/data/family_context.dart';
 import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/token_storage.dart';
 import 'package:hrhb_frontend/theme/text.dart';
 import 'package:hrhb_frontend/theme/tokens.dart';
-import 'package:hrhb_frontend/utils/korean.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_layout.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_temperature.dart';
 import 'package:hrhb_frontend/widgets/haru/pressable.dart';
 
 import '../album/albums_screen.dart';
 import '../archive/archive_screen.dart';
-import '../archive/day_detail_screen.dart';
 import '../diary/diary_screen.dart';
 import '../family/family_tab_screen.dart';
 import '../home/today_screen.dart';
-import '../home/temperature_popup.dart';
 
 enum HaruTab { archive, diary, home, album, family }
 
-/// Space the floating tab bar covers; scrollable tab content ends with this
-/// much padding (prototype: 110px spacer).
-const double kTabBarClearance = 110;
+/// Bottom padding every scrollable tab/page ends with (prototype: 130px) so
+/// the floating nav bar never covers the last row.
+const double kNavClearance = 130;
 
-/// Lets screens switch tabs or reach the tab bar metrics.
+/// Lets screens switch tabs or push onto a tab's navigator.
 class HomeShellScope extends InheritedWidget {
   const HomeShellScope({super.key, required this.state, required super.child});
 
@@ -41,8 +40,8 @@ class HomeShellScope extends InheritedWidget {
   bool updateShouldNotify(HomeShellScope oldWidget) => false;
 }
 
-/// VER2 shell: 기록 · 일지 · 홈 · 앨범 · 가족, each with its own navigator so
-/// the tab bar stays visible on pushed screens.
+/// 기록 · 일지 · 홈 · 앨범 · 가족, each with its own navigator so the nav bar
+/// stays on pushed pages (the prototype keeps it on every in-app page).
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -54,7 +53,9 @@ class HomeShellState extends State<HomeShell> {
   HaruTab _tab = HaruTab.home;
   HaruTab get currentTab => _tab;
 
-  final _keys = {for (final t in HaruTab.values) t: GlobalKey<NavigatorState>()};
+  final _keys = {
+    for (final t in HaruTab.values) t: GlobalKey<NavigatorState>(),
+  };
   final _visited = <HaruTab>{HaruTab.home};
 
   final _tokenStorage = TokenStorage();
@@ -63,31 +64,34 @@ class HomeShellState extends State<HomeShell> {
   /// Bumped when data changed somewhere and tab roots should reload.
   final refreshTick = ValueNotifier<int>(0);
 
+  /// The visible tab, for screens that replay their entrance when shown.
+  final tabListenable = ValueNotifier<HaruTab>(HaruTab.home);
+
   @override
   void initState() {
     super.initState();
-    HaruToast.tabBarDepth++;
     FamilyContext.instance.ensure().ignore();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowTemperaturePopup());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybeShowTemperaturePopup(),
+    );
   }
 
   @override
   void dispose() {
-    HaruToast.tabBarDepth--;
     refreshTick.dispose();
+    tabListenable.dispose();
     super.dispose();
   }
 
   NavigatorState? navigatorOf(HaruTab tab) => _keys[tab]!.currentState;
 
   void switchTo(HaruTab tab, {bool popToRoot = true}) {
-    if (popToRoot) {
-      navigatorOf(tab)?.popUntil((r) => r.isFirst);
-    }
+    if (popToRoot) navigatorOf(tab)?.popUntil((r) => r.isFirst);
     setState(() {
       _tab = tab;
       _visited.add(tab);
     });
+    tabListenable.value = tab;
   }
 
   /// Switch to [tab] and push [page] on its navigator.
@@ -100,13 +104,8 @@ class HomeShellState extends State<HomeShell> {
 
   void notifyDataChanged() => refreshTick.value++;
 
-  void _onTabTap(HaruTab tab) {
-    if (tab == _tab) {
-      navigatorOf(tab)?.popUntil((r) => r.isFirst);
-      return;
-    }
-    switchTo(tab, popToRoot: false);
-  }
+  /// The prototype's nav taps always clear the page (`page: null`).
+  void _onTabTap(HaruTab tab) => switchTo(tab);
 
   Future<void> _maybeShowTemperaturePopup() async {
     try {
@@ -116,7 +115,7 @@ class HomeShellState extends State<HomeShell> {
       if (await _tokenStorage.readTempPopupShownDate() == today) return;
       final temp = await AuthedCall.run(_api.fetchFamilyTemperature);
       if (!mounted) return;
-      // Same threshold as v1: only a visible change earns the popup.
+      // Only a visible change earns the popup.
       final delta = temp.deltaFromYesterday;
       if (delta.abs() < 0.05) return;
       await Future<void>.delayed(const Duration(milliseconds: 600));
@@ -140,15 +139,16 @@ class HomeShellState extends State<HomeShell> {
   }
 
   Widget _rootFor(HaruTab tab) => switch (tab) {
-        HaruTab.archive => const ArchiveScreen(),
-        HaruTab.diary => const DiaryScreen(),
-        HaruTab.home => const TodayScreen(),
-        HaruTab.album => const AlbumsScreen(),
-        HaruTab.family => const FamilyTabScreen(),
-      };
+    HaruTab.archive => const ArchiveScreen(),
+    HaruTab.diary => const DiaryScreen(),
+    HaruTab.home => const TodayScreen(),
+    HaruTab.album => const AlbumsScreen(),
+    HaruTab.family => const FamilyTabScreen(),
+  };
 
   @override
   Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
     return HomeShellScope(
       state: this,
       child: PopScope(
@@ -157,34 +157,56 @@ class HomeShellState extends State<HomeShell> {
           if (!didPop) _handleBack();
         },
         child: Scaffold(
-          backgroundColor: HaruColors.canvas,
+          backgroundColor: HaruColors.cream,
+          // The keyboard slides over the nav bar; pages pad for it themselves.
+          resizeToAvoidBottomInset: false,
           body: Stack(
             children: [
-              Positioned.fill(
-                child: IndexedStack(
-                  index: _tab.index,
-                  children: [
-                    for (final t in HaruTab.values)
-                      _visited.contains(t)
-                          ? _TabFade(
-                              active: t == _tab,
-                              child: Navigator(
-                                key: _keys[t],
-                                onGenerateRoute: (settings) => MaterialPageRoute<void>(
-                                  settings: settings,
-                                  builder: (_) => _rootFor(t),
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                  ],
-                ),
-              ),
               Positioned(
+                top: top,
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: _TabBar(current: _tab, onTap: _onTabTap),
+                child: ClipRect(
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: AppPrefs.fontSize,
+                      builder: (context, size, child) =>
+                          ZoomBox(zoom: AppPrefs.zooms[size], child: child!),
+                      child: IndexedStack(
+                        index: _tab.index,
+                        children: [
+                          for (final t in HaruTab.values)
+                            _visited.contains(t)
+                                ? _TabFade(
+                                    active: t == _tab,
+                                    // Hidden tabs stop their looping art.
+                                    child: TickerMode(
+                                      enabled: t == _tab,
+                                      child: Navigator(
+                                        key: _keys[t],
+                                        onGenerateRoute: (settings) =>
+                                            MaterialPageRoute<void>(
+                                              settings: settings,
+                                              builder: (_) => _rootFor(t),
+                                            ),
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 16,
+                child: _NavBar(current: _tab, onTap: _onTabTap),
               ),
             ],
           ),
@@ -194,7 +216,7 @@ class HomeShellState extends State<HomeShell> {
   }
 }
 
-/// hxFade (translateY 8px → 0 + fade, .38s) whenever a tab becomes active.
+/// `hrFadeUp` whenever a tab becomes active (the prototype re-mounts it).
 class _TabFade extends StatefulWidget {
   const _TabFade({required this.active, required this.child});
 
@@ -205,8 +227,9 @@ class _TabFade extends StatefulWidget {
   State<_TabFade> createState() => _TabFadeState();
 }
 
-class _TabFadeState extends State<_TabFade> with SingleTickerProviderStateMixin {
-  late final _c = AnimationController(vsync: this, duration: HaruMotion.fade)
+class _TabFadeState extends State<_TabFade>
+    with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: HaruMotion.screen)
     ..value = 1;
 
   @override
@@ -226,10 +249,13 @@ class _TabFadeState extends State<_TabFade> with SingleTickerProviderStateMixin 
     return AnimatedBuilder(
       animation: _c,
       builder: (_, child) {
-        final t = HaruMotion.standard.transform(_c.value);
+        final t = HaruMotion.out.transform(_c.value);
         return Opacity(
           opacity: t,
-          child: Transform.translate(offset: Offset(0, 8 * (1 - t)), child: child),
+          child: Transform.translate(
+            offset: Offset(0, 10 * (1 - t)),
+            child: child,
+          ),
         );
       },
       child: widget.child,
@@ -237,41 +263,48 @@ class _TabFadeState extends State<_TabFade> with SingleTickerProviderStateMixin 
   }
 }
 
-class _TabBar extends StatelessWidget {
-  const _TabBar({required this.current, required this.onTap});
+/// Floating pill bar: left/right 20, bottom 16, 70 tall inside a 1px
+/// border, translucent mint.
+class _NavBar extends StatelessWidget {
+  const _NavBar({required this.current, required this.onTap});
 
   final HaruTab current;
   final ValueChanged<HaruTab> onTap;
 
   static const _items = [
-    (HaruTab.archive, '기록', LucideIcons.calendarDays),
-    (HaruTab.diary, '일지', LucideIcons.notebookPen),
-    (HaruTab.home, '홈', LucideIcons.house),
-    (HaruTab.album, '앨범', LucideIcons.images),
-    (HaruTab.family, '가족', LucideIcons.users),
+    (HaruTab.archive, '기록', Symbols.calendar_month_rounded),
+    (HaruTab.diary, '일지', Symbols.edit_note_rounded),
+    (HaruTab.home, '홈', Symbols.home_rounded),
+    (HaruTab.album, '앨범', Symbols.photo_library_rounded),
+    (HaruTab.family, '가족', Symbols.groups_rounded),
   ];
 
   @override
   Widget build(BuildContext context) {
+    // height:70px is the content box (no border-box): + 1px border = 72.
     return Container(
-      padding: const EdgeInsets.only(bottom: 20),
+      height: 72,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        boxShadow: HaruShadows.tabBar,
+        color: HaruColors.navFill,
+        border: Border.all(color: HaruColors.navBorder),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: HaruShadows.shadow2,
       ),
       child: Row(
         children: [
           for (final (tab, label, icon) in _items)
             Expanded(
-              child: tab == HaruTab.home
-                  ? _CenterTab(selected: current == tab, label: label, onTap: () => onTap(tab))
-                  : _SideTab(
-                      selected: current == tab,
-                      label: label,
-                      icon: icon,
-                      onTap: () => onTap(tab),
-                    ),
+              child: Pressable(
+                onTap: () => onTap(tab),
+                semanticLabel: label,
+                child: tab == HaruTab.home
+                    ? _CenterItem(selected: current == tab)
+                    : _SideItem(
+                        selected: current == tab,
+                        label: label,
+                        icon: icon,
+                      ),
+              ),
             ),
         ],
       ),
@@ -279,115 +312,105 @@ class _TabBar extends StatelessWidget {
   }
 }
 
-class _SideTab extends StatelessWidget {
-  const _SideTab({
+class _SideItem extends StatelessWidget {
+  const _SideItem({
     required this.selected,
     required this.label,
     required this.icon,
-    required this.onTap,
   });
 
   final bool selected;
   final String label;
   final IconData icon;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final fg = selected ? HaruColors.accentName : HaruColors.inkQuiet;
-    return Pressable(
-      onTap: onTap,
-      semanticLabel: label,
-      child: SizedBox(
-        height: 64,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // translateY(-2px) scale(1.12), .3s cubic-bezier(.2,1.4,.4,1)
-            AnimatedSlide(
-              offset: Offset(0, selected ? -2 / 22 : 0),
-              duration: const Duration(milliseconds: 300),
-              curve: HaruMotion.pop,
-              child: AnimatedScale(
-                scale: selected ? 1.12 : 1,
-                duration: const Duration(milliseconds: 300),
-                curve: HaruMotion.pop,
-                child: Icon(icon, size: 22, color: fg),
+    final fg = selected ? HaruColors.forest : HaruColors.inkMuted;
+    return SizedBox(
+      height: 70,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // pill 52×32: forest + white icon when selected, translateY(-1px);
+          // transition background 220ms ease, transform 300ms (.2,1.4,.4,1)
+          AnimatedSlide(
+            offset: Offset(0, selected ? -1 / 32 : 0),
+            duration: const Duration(milliseconds: 300),
+            curve: HaruMotion.pop,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.ease,
+              width: 52,
+              height: 32,
+              decoration: BoxDecoration(
+                color: selected ? HaruColors.forest : Colors.transparent,
+                borderRadius: BorderRadius.circular(HaruRadius.full),
               ),
+              child: Icon(icon, size: 25, color: selected ? Colors.white : HaruColors.inkMuted),
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: haruText(
-                11,
-                weight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: fg,
-                height: 1.2,
-              ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: hr(
+              13.5,
+              weight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: fg,
+              letterSpacing: -.4,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _CenterTab extends StatelessWidget {
-  const _CenterTab({required this.selected, required this.label, required this.onTap});
+class _CenterItem extends StatelessWidget {
+  const _CenterItem({required this.selected});
 
   final bool selected;
-  final String label;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Pressable(
-      onTap: onTap,
-      semanticLabel: label,
-      child: SizedBox(
-        height: 64,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.topCenter,
-          children: [
-            // The 62px circle sits at top:-24; its 5px white ring adds 5 more.
-            Positioned(
-              top: -29,
-              child: AnimatedScale(
-                scale: selected ? 1.06 : 1,
-                duration: const Duration(milliseconds: 350),
-                curve: HaruMotion.pop,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  width: 72, // 62 + 5px white ring on each side
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: HaruShadows.homeTab,
-                  ),
-                  padding: const EdgeInsets.all(5),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    decoration: BoxDecoration(
-                      color: selected ? HaruColors.logo : HaruColors.house,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(LucideIcons.house, size: 26, color: Colors.white),
-                  ),
+    return SizedBox(
+      height: 70,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          // 62px circle at top -8 with a 5px cream ring (box-shadow spread).
+          Positioned(
+            top: -8,
+            child: AnimatedScale(
+              scale: selected ? 1.06 : 1,
+              duration: const Duration(milliseconds: 350),
+              curve: HaruMotion.pop,
+              child: AnimatedContainer(
+                // transition: background 250ms (CSS default ease)
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.ease,
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  color: selected ? HaruColors.forest : HaruColors.softGreen,
+                  shape: BoxShape.circle,
+                  // CSS paints the first shadow on top: the cream ring covers
+                  // the green glow; Flutter paints in list order, so reverse.
+                  boxShadow: [
+                    ...HaruShadows.homeTab,
+                    const BoxShadow(color: HaruColors.cream, spreadRadius: 5),
+                  ],
+                ),
+                child: const Icon(
+                  Symbols.home_rounded,
+                  size: 30,
+                  color: Colors.white,
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
-}
-
-/// Opens the day detail for [date] on the 기록 tab (used by 홈 and 알림).
-/// The prototype maps `day` to the 기록 tab, so the tab bar follows.
-void openDayOnArchive(BuildContext context, DateTime date) {
-  HomeShellScope.of(context)
-      .pushOn(HaruTab.archive, DayDetailScreen(date: dateOnly(date)));
 }

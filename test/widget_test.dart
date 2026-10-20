@@ -16,15 +16,17 @@ void main() {
     await tester.pump();
 
     expect(find.text('하루한번'), findsOneWidget);
-    expect(find.text('가족을 잇는 감성 커뮤니케이션'), findsOneWidget);
+    expect(find.text('하루에 한 번, 가족에게 편지를'), findsOneWidget);
 
     // Screens loop decorative animations forever, so pumpAndSettle would never
     // return. Secure storage never answers under test, so the session check
-    // runs into its 12s timeout; step past it and the login entry timers.
+    // runs into its 12s timeout (after the 2s font-size read); step past it
+    // and the login entry timers.
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 13));
     await tester.pump(const Duration(seconds: 3)); // splash minimum → login
     await tester.pump(const Duration(seconds: 3)); // login entry animations
-    expect(find.text('이메일로 로그인'), findsOneWidget);
+    expect(find.text('이메일로 시작하기'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

@@ -1,123 +1,135 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
-/// Design tokens for 하루한번 VER2.
+/// Design tokens for 하루한번 VER3.
 ///
-/// Values come straight from the VER2 design mockups; CSS px map 1:1 to
-/// Flutter logical pixels.
+/// Values come straight from the VER3 design mockups (402×874 frame) and the
+/// 하루한번 design system's tokens/colors.css; CSS px map 1:1 to Flutter
+/// logical pixels.
 abstract final class HaruColors {
-  // ── VER2 screen palette ────────────────────────────────────────────────
-  static const canvas = Color(0xFFF5EFE4); // bg.canvas — screen background
-  static const card = Color(0xFFFFFFFF); // bg.card
-  static const ceramic = Color(0xFFECE4D6); // empty cards, segment/gauge track
-  static const meadow = Color(0xFFE3EED8); // family band, positive pill
-  static const house = Color(0xFF62763A); // question hero, selected chips
-  static const logo = Color(0xFF4D6428); // wordmark
-  static const accentName = Color(0xFF5E7A2E); // answerer name (Gaegu)
-  static const ink = Color(0xFF2B2016); // ink.95 in VER2 screens
-  static const inkSecondary = Color(0x9E2B2016); // rgba(43,32,22,.62)
-  static const inkTertiary = Color(0x8C2B2016); // rgba(43,32,22,.55)
-  static const inkQuiet = Color(0x732B2016); // rgba(43,32,22,.45)
-  static const inkChevron = Color(0x592B2016); // rgba(43,32,22,.35)
-  static const inkDisabled = Color(0x472B2016); // rgba(43,32,22,.28)
-  static const inkLine = Color(0x242B2016); // rgba(43,32,22,.14)
-  static const inkLineSoft = Color(0x1F2B2016); // rgba(43,32,22,.12)
-  static const inkDivider = Color(0x142B2016); // rgba(43,32,22,.08)
-  static const handle = Color(0x2E2B2016); // rgba(43,32,22,.18)
-  static const handleYm = Color(0x332B2016); // rgba(43,32,22,.2)
-  static const dotIdle = Color(0xFFDDD5C6);
+  // ── Brand ──────────────────────────────────────────────────────────────
+  static const forest = Color(0xFF3A6A3F); // --hr-forest · titles, selection
+  static const softGreen = Color(0xFF7FA87A); // --hr-soft-green · icons, focus
+  static const cta = Color(0xFF2F8F4E); // --hr-cta-home · buttons, check
+  static const ctaDisabled = Color(0x732F8F4E); // rgba(47,143,78,.45)
+  static const fieldBorder = Color(0xFFC5D9B8); // --hr-field-border
+  static const dividerGreen = Color(0xFFB7C7B4); // --hr-divider-green
 
-  // ── Temperature / streak / warning ─────────────────────────────────────
-  static const tempRise = Color(0xFFE08A8A);
-  static const tempRiseText = Color(0xFFC4553A);
-  static const tempDrop = Color(0xFF6A9BC8);
-  static const tempDropText = Color(0xFF4E7BA6);
-  static const streak = Color(0xFFE0784A);
-  static const streakTile = Color(0xFFFBE3D6);
-  static const streakTrack = Color(0xFFF0EAE0);
-  static const warn = Color(0xFFE0A14A);
-  static const warnPill = Color(0xFFFBEBD3);
-  static const warnText = Color(0xFF8A5210);
-  static const positivePillText = Color(0xFF3F5E22);
-  static const heatmap = [
-    Color(0xFFECE4D6),
-    Color(0xFFD9E2C4),
-    Color(0xFFB5C790),
-    Color(0xFF8CA35F),
-    Color(0xFF62763A),
-  ];
+  // ── Surfaces ───────────────────────────────────────────────────────────
+  static const cream = Color(0xFFFDFBF0); // --hr-cream · canvas
+  static const ivory = Color(0xFFFFFCF6); // --hr-ivory · cards
+  static const panelGreen = Color(0xFFEAF3E4); // --hr-panel-green
+  static const hairline = Color(0xFFE8E0D4); // --hr-hairline
+  static const lineGrey = Color(0xFFD8D8D8); // --hr-line-grey · switch off
+  static const gaugeTrack = Color(0xFFEDE6D8); // --hr-gauge-track
+  static const waiting = Color(0xFFF4F1E6); // "기다리는 중" rows
+  static const handle = Color(0xFFD7E0D4); // sheet grabber
 
-  // ── Design system: brand (tokens/colors.css) ───────────────────────────
-  static const primary = Color(0xFF4F8A5B);
-  static const primaryActive = Color(0xFF3D7049);
-  static const onPrimary = Color(0xFFFFFFFF);
-  static const secondary = Color(0xFFE3EED8);
-  static const onSecondary = Color(0xFF2A3320);
+  // ── Text ───────────────────────────────────────────────────────────────
+  static const ink = Color(0xFF2F2F2F); // --hr-ink-strong · body
+  static const inkSoft = Color(0xFF4A4A4A); // --hr-ink · letter question
+  static const inkMuted = Color(0xFF5F5F5F); // --hr-ink-onb · secondary
+  static const inkFaint = Color(0xFF8A8A8A); // --hr-ink-muted · chevrons
+  static const placeholder = Color(0xFF757575); // browser ::placeholder
 
-  // Sticker palette — decoration only
-  static const accentSky = Color(0xFFC7E0F2);
-  static const accentPurple = Color(0xFFE4D8F3);
-  static const accentPurpleDeep = Color(0xFF4B3A66);
-  static const accentPink = Color(0xFFF7D0DC);
-  static const accentOrange = Color(0xFFFBD9C4);
-  static const accentOrangeDeep = Color(0xFF8A4A2A);
-  static const accentTeal = Color(0xFFBFE3DC);
-  static const accentGreen = Color(0xFFB9DCB0);
-  static const accentBrown = Color(0xFF523410);
-  static const accentButter = Color(0xFFFBEEB0);
+  // ── Decorative (member tints, icon tiles) ──────────────────────────────
+  static const mint = Color(0xFFE8F0E4); // --hr-deco-mint
+  static const orange = Color(0xFFF5E2CF); // --hr-deco-orange
+  static const orangeInk = Color(0xFFE8A05A); // --hr-deco-orange-ink
+  static const yellow = Color(0xFFFFF1B8); // --hr-deco-yellow
+  static const lavender = Color(0xFFF0EAF6); // --hr-deco-lavender
+  static const sand = Color(0xFFEDE6D8);
+  static const welcome = Color(0xCCFFF8E8); // rgba(255,248,232,.8)
 
-  /// Avatar / photo placeholder cycle (prototype `T` list).
-  static const tints = [
-    accentSky,
-    accentGreen,
-    accentPink,
-    accentButter,
-    accentOrange,
-    accentTeal,
-    accentPurple,
-  ];
+  // ── Semantic ───────────────────────────────────────────────────────────
+  static const danger = Color(0xFFD96050); // --hr-danger
+  static const dangerStrong = Color(0xFFC45C5C); // --hr-danger-strong
+  static const dangerBorder = Color(0xFFE0C4C4); // --hr-danger-border
+  static const badge = Color(0xFFE86A4A); // --hr-badge · unread dot
+  static const tempRise = Color(0xFFE08A8A); // --hr-temp-rise
+  static const tempDrop = Color(0xFF6A9BC8); // --hr-temp-drop
+  static const tempDelta = Color(0xFF5B8FD9); // --hr-temp-delta
+  static const tempText = Color(0xFFC9C24F); // home temperature figure
+  static const warmIcon = Color(0xFFF09A4A); // device_thermostat tile
 
-  // Surface
-  static const surface = Color(0xFFFFFFFF);
-  static const canvasSoft = Color(0xFFFAF8F2);
-  static const hairline = Color(0xFFEBE7DC);
-  static const inputBorder = Color(0xFFDDD8CC);
-  static const fillHover = Color(0x0A000000); // rgba(0,0,0,.04)
-  static const fillTranslucent = Color(0x0D000000); // rgba(0,0,0,.05)
-
-  // Text (design-system screens: auth, onboarding, answers, albums, temp)
-  static const dsInk = Color(0xF2000000); // --ink-95
-  static const dsInkSecondary = Color(0xFF33372F);
-  static const dsInkMuted = Color(0xFF62675D);
-  static const dsInkFaint = Color(0xFFA3A697);
-
-  static const statusPositive = Color(0xFF3F8A4F);
-  static const statusAttention = Color(0xFFC4692F);
-
-  static const dim = Color(0x80000000); // modal dim rgba(0,0,0,.5)
+  // ── Overlays / chrome ──────────────────────────────────────────────────
+  static const dim = Color(0x59000000); // rgba(0,0,0,.35)
+  static const dimSheet = Color(0x66000000); // rgba(0,0,0,.4)
+  static const dimPopup = Color(0x73000000); // rgba(0,0,0,.45)
+  static const navFill = Color(0xEBE8F0E4); // rgba(232,240,228,.92)
+  static const navBorder = Color(0x99C5D5C0); // rgba(197,213,192,.6)
+  static const monthIdle = Color(0xFFE4EDE2);
+  static const monthDisabled = Color(0xFFECEFEA);
+  static const monthDisabledInk = Color(0xFFA0A89F);
   static const kakaoYellow = Color(0xFFFEE500);
   static const kakaoLabel = Color(0xD9000000); // rgba(0,0,0,.85)
+  static const googleBorder = Color(0xFFDADCE0);
+  static const googleLabel = Color(0xFF1F1F1F);
+
+  /// Thermal ramp (--hr-thermal-1 … 8).
+  static const thermal = [
+    Color(0xFF7EC8F5),
+    Color(0xFF8FD4C8),
+    Color(0xFFB8E07A),
+    Color(0xFFE8E05A),
+    Color(0xFFF5C04A),
+    Color(0xFFF09A4A),
+    Color(0xFFE8785A),
+    Color(0xFFE85A55),
+  ];
+
+  /// Heat calendar levels for 0 … 4 members answered.
+  static const heat = [
+    Color(0xFFEDE6D8),
+    Color(0xFFE8F0E4),
+    Color(0xFFC5D9B8),
+    Color(0xFF7FA87A),
+    Color(0xFF3A6A3F),
+  ];
+
+  /// Avatar / photo placeholder cycle (prototype `PHOTO_TINTS`).
+  static const tints = [
+    mint,
+    orange,
+    lavender,
+    yellow,
+    panelGreen,
+    sand,
+  ];
+}
+
+/// The prototype's `tempColor(t)`: thermal ramp at t/100, darkened to 86 %.
+/// Used for day temperatures and participation bars.
+Color tempColor(double t) {
+  final s = t.clamp(0, 100) / 100 * 7;
+  final i = math.min(6, s.floor());
+  final l = s - i;
+  final a = HaruColors.thermal[i], b = HaruColors.thermal[i + 1];
+  int ch(double x, double y) => ((x + (y - x) * l) * 0.86).round();
+  return Color.fromARGB(
+    255,
+    ch(a.r * 255, b.r * 255),
+    ch(a.g * 255, b.g * 255),
+    ch(a.b * 255, b.b * 255),
+  );
+}
+
+/// The design system's `lerp(t)` for the gauge arc (no darkening).
+Color thermalAt(double t) {
+  final c = HaruColors.thermal;
+  final s = t.clamp(0.0, 1.0) * (c.length - 1);
+  final i = math.min(c.length - 2, s.floor());
+  return Color.lerp(c[i], c[i + 1], s - i)!;
 }
 
 abstract final class HaruRadius {
-  static const xs = 4.0;
-  static const sm = 5.0;
-  static const md = 8.0;
-  static const lg = 12.0;
-  static const xl = 16.0;
-  static const hero = 20.0;
-  static const sheet = 24.0;
-  static const full = 9999.0;
-}
-
-abstract final class HaruSpace {
-  static const xxs = 4.0;
-  static const xs = 8.0;
   static const sm = 12.0;
-  static const md = 16.0;
-  static const lg = 24.0;
-  static const xl = 28.0;
-  static const xxl = 32.0;
-  static const tapMin = 44.0;
+  static const md = 14.0;
+  static const lg = 16.0;
+  static const xl = 18.0;
+  static const sheet = 22.0;
+  static const full = 999.0;
 }
 
 /// Converts a CSS `box-shadow` blur length to a Flutter [BoxShadow.blurRadius].
@@ -146,52 +158,55 @@ BoxShadow cssShadow({
 }
 
 abstract final class HaruShadows {
-  /// `--shadow-1`
-  static final s1 = [
-    cssShadow(y: 0.175, blur: 1.041, color: const Color(0x03000000)),
-    cssShadow(y: 0.8, blur: 2.925, color: const Color(0x05000000)),
-    cssShadow(y: 2.025, blur: 7.847, color: const Color(0x07000000)),
-    cssShadow(y: 4, blur: 18, color: const Color(0x0A000000)),
-  ];
+  /// `--shadow-card` 0 6 16 rgba(0,0,0,.086)
+  static final card = [cssShadow(y: 6, blur: 16, color: const Color(0x16000000))];
 
-  /// `--shadow-2`
-  static final s2 = [
-    cssShadow(y: 1, blur: 3, color: const Color(0x03000000)),
-    cssShadow(y: 3, blur: 7, color: const Color(0x05000000)),
-    cssShadow(y: 7, blur: 15, color: const Color(0x05000000)),
-    cssShadow(y: 14, blur: 28, color: const Color(0x0A000000)),
-    cssShadow(y: 23, blur: 52, color: const Color(0x0D000000)),
-  ];
+  /// `--shadow-1` 0 4 12 rgba(0,0,0,.08) — family select cards.
+  static final soft = [cssShadow(y: 4, blur: 12, color: const Color(0x14000000))];
 
-  /// Bottom tab bar.
-  static final tabBar = [
-    cssShadow(y: -1, blur: 0, color: const Color(0x0D2B2016)),
-    cssShadow(y: -8, blur: 24, color: const Color(0x122B2016)),
-  ];
+  /// `--shadow-1` 0 4 10 rgba(0,0,0,.08) — email button.
+  static final shadow1 = [cssShadow(y: 4, blur: 10, color: const Color(0x14000000))];
 
-  /// Floating "오늘의 답변 남기기" button.
-  static final fab = [
-    cssShadow(y: 8, blur: 24, color: const Color(0x472B2016)),
-  ];
+  /// `--shadow-2` 0 6 18 rgba(0,0,0,.10) — nav bar, snackbar.
+  static final shadow2 = [cssShadow(y: 6, blur: 18, color: const Color(0x1A000000))];
 
-  /// Raised center "홈" tab button.
-  static final homeTab = [
-    cssShadow(y: 12, blur: 24, color: const Color(0x524D6428)),
-  ];
+  /// `--shadow-3` 0 5 12 rgba(0,0,0,.13) — filled pills ("보내기", "사진 올리기").
+  static final shadow3 = [cssShadow(y: 5, blur: 12, color: const Color(0x21000000))];
+
+  /// Answer card 0 2 8 rgba(58,106,63,.06).
+  static final answer = [cssShadow(y: 2, blur: 8, color: const Color(0x0F3A6A3F))];
+
+  /// Raised 홈 tab: 5px cream ring + 0 8 16 rgba(58,106,63,.3).
+  static final homeTab = [cssShadow(y: 8, blur: 16, color: const Color(0x4D3A6A3F))];
+
+  /// Temperature popup 0 16 40 rgba(0,0,0,.18).
+  static final popup = [cssShadow(y: 16, blur: 40, color: const Color(0x2E000000))];
+
+  /// Switch knob 0 1 3 rgba(0,0,0,.15).
+  static final knob = [cssShadow(y: 1, blur: 3, color: const Color(0x26000000))];
+
+  /// Letter glow while opening: drop-shadow(0 10px 18px rgba(58,106,63,.25)).
+  static final letterGlow = [cssShadow(y: 10, blur: 18, color: const Color(0x403A6A3F))];
 }
 
 abstract final class HaruMotion {
-  /// `--ease-standard` cubic-bezier(0.2, 0, 0, 1)
+  /// Screen entrance `hrFadeUp`/`hrRiseIn` cubic-bezier(.33,1,.68,1).
+  static const out = Cubic(0.33, 1, 0.68, 1);
+
+  /// `cubic-bezier(.2,0,0,1)` — staggered list/pop entrances.
   static const standard = Cubic(0.2, 0, 0, 1);
 
-  /// Pop-in used for chips/cells: cubic-bezier(.2, 1.4, .4, 1)
+  /// Overshoot `cubic-bezier(.2,1.4,.4,1)` — nav pills, week chips, weather.
   static const pop = Cubic(0.2, 1.4, 0.4, 1);
 
-  /// Bottom sheet slide: cubic-bezier(.2, .8, .2, 1)
+  /// Bottom sheet `cubic-bezier(.2,.8,.2,1)`.
   static const sheet = Cubic(0.2, 0.8, 0.2, 1);
 
-  static const fast = Duration(milliseconds: 120);
-  static const base = Duration(milliseconds: 200);
-  static const push = Duration(milliseconds: 340);
-  static const fade = Duration(milliseconds: 380);
+  /// Growth bars `cubic-bezier(.3,0,.1,1)`.
+  static const grow = Cubic(0.3, 0, 0.1, 1);
+
+  static const press = Duration(milliseconds: 200);
+  static const screen = Duration(milliseconds: 420);
+  static const sheetIn = Duration(milliseconds: 360);
+  static const fade = Duration(milliseconds: 240);
 }

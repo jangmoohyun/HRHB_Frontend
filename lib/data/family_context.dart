@@ -6,7 +6,7 @@ import 'package:hrhb_frontend/widgets/haru/haru_family.dart';
 
 import 'authed_call.dart';
 
-/// Family name, invite code and members as the VER2 tabs need them.
+/// Family name, invite code and members as the tabs need them.
 class FamilySnapshot {
   const FamilySnapshot({
     required this.name,
@@ -15,6 +15,7 @@ class FamilySnapshot {
     required this.members,
     this.myRole,
     this.myBirthOrder,
+    this.createdAt,
   });
 
   final String name;
@@ -27,6 +28,18 @@ class FamilySnapshot {
   /// Raw role/birthOrder for the settings rows.
   final String? myRole;
   final int? myBirthOrder;
+
+  /// When the family was made ("함께한 지 N일"); null until the server sends it.
+  final DateTime? createdAt;
+
+  /// Days since the family was created, counting the first day as day 1.
+  int? get daysTogether {
+    final c = createdAt;
+    if (c == null) return null;
+    final now = DateTime.now();
+    final start = DateTime(c.year, c.month, c.day);
+    return DateTime(now.year, now.month, now.day).difference(start).inDays + 1;
+  }
 
   MemberLook? get me {
     for (final m in members) {
@@ -42,7 +55,6 @@ class FamilySnapshot {
     return null;
   }
 
-  String get countText => '${members.length}명이 함께하고 있어요';
 }
 
 /// Shared family state for every tab. Loads the cached profile first so the
@@ -89,6 +101,7 @@ class FamilyContext extends ChangeNotifier {
       code: family.inviteCode,
       isCreator: isCreator,
       members: family.members,
+      createdAt: family.createdAt,
     );
     notifyListeners();
     return _value!;
@@ -116,6 +129,7 @@ class FamilyContext extends ChangeNotifier {
     required String code,
     required bool isCreator,
     required List<FamilyMemberResult> members,
+    DateTime? createdAt,
   }) {
     final meRow = members.where((m) => m.isMe).firstOrNull;
     final looks = MemberLook.forFamily([
@@ -137,6 +151,7 @@ class FamilyContext extends ChangeNotifier {
       members: looks,
       myRole: meRow?.role,
       myBirthOrder: meRow?.birthOrder,
+      createdAt: createdAt,
     );
   }
 }

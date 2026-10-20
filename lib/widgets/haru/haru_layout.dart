@@ -1,578 +1,579 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../theme/text.dart';
 import '../../theme/tokens.dart';
-import 'haru_button.dart';
+import 'haru_decor.dart';
 import 'pressable.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Headers
-// ─────────────────────────────────────────────────────────────────────────────
+/// Ivory card with the hairline border (radius 16, padding 16 by default).
+class HrCard extends StatelessWidget {
+  const HrCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.radius = 16,
+    this.color = HaruColors.ivory,
+    this.borderColor = HaruColors.hairline,
+    this.borderWidth = 1,
+    this.shadow,
+    this.margin,
+  });
 
-/// Pushed-screen header: back button, centered title, optional trailing.
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double radius;
+  final Color color;
+  final Color? borderColor;
+  final double borderWidth;
+  final List<BoxShadow>? shadow;
+  final EdgeInsetsGeometry? margin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(radius),
+        border: borderColor == null ? null : Border.all(color: borderColor!, width: borderWidth),
+        boxShadow: shadow,
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Tab screen title: "우리 가족 일지" (23, forest) + sprout + optional line.
+/// The DS `SproutIcon` is placed without a size, so it renders at its
+/// default 18 (the template's hint-size is only a placeholder hint).
+class TabHeader extends StatelessWidget {
+  const TabHeader({super.key, required this.title, this.subtitle});
+
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(title, style: HaruType.tabTitle),
+        const SizedBox(height: 2),
+        const SproutIcon(size: 18),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(subtitle!, style: hr(14.5, color: HaruColors.inkMuted)),
+        ],
+      ],
+    );
+  }
+}
+
+/// Sub-page header: 52 tall, 44px back target, centered 21px title.
 ///
-/// [ver2] = VER2 screens (알림, 하루 상세): 56px tall, 24px chevron in #2B2016.
-/// Otherwise the design-system header (답변 보기, 앨범 상세…): min 52px,
-/// DS IconButton with a 20px chevron.
-class HaruSubHeader extends StatelessWidget {
-  const HaruSubHeader({
+/// The back button's press defaults to the common
+/// `transition:transform 200ms ease` + `scale(.95)`; 설정 and the policy
+/// pages pass their own ([BackChevron]).
+class SubHeader extends StatelessWidget {
+  const SubHeader({
     super.key,
     required this.title,
     this.onBack,
     this.trailing,
-    this.ver2 = false,
+    this.backScale = .95,
+    this.backDuration = const Duration(milliseconds: 200),
+    this.backInlineTransition = true,
   });
 
   final String title;
   final VoidCallback? onBack;
-  final List<Widget>? trailing;
-  final bool ver2;
+  final Widget? trailing;
+  final double backScale;
+  final Duration backDuration;
+  final bool backInlineTransition;
 
   @override
   Widget build(BuildContext context) {
-    final back = onBack ?? () => Navigator.of(context).maybePop();
-    if (ver2) {
-      return SizedBox(
-        height: 56,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            children: [
-              HaruIconButton(
-                icon: LucideIcons.chevronLeft,
-                label: '뒤로',
-                iconSize: 24,
-                color: HaruColors.ink,
-                pressScale: 0.95,
-                onPressed: back,
-              ),
-              Expanded(
-                child: Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: HaruType.headerTitle,
-                ),
-              ),
-              if (trailing == null) const SizedBox(width: 40) else ...trailing!,
-            ],
-          ),
-        ),
-      );
-    }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 52),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-        child: Row(
-          children: [
-            HaruIconButton(
-              icon: LucideIcons.chevronLeft,
-              label: '뒤로',
-              onPressed: back,
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                title,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: haruText(17, weight: FontWeight.w600, color: HaruColors.dsInk),
-              ),
-            ),
-            const SizedBox(width: 4),
-            if (trailing == null) const SizedBox(width: 40) else ...trailing!,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Surfaces
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// White card with `--shadow-1` (VER2 cards: radius 16).
-class HaruCard extends StatelessWidget {
-  const HaruCard({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.radius = HaruRadius.xl,
-    this.color = HaruColors.card,
-    this.onTap,
-    this.clip = false,
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final double radius;
-  final Color color;
-  final VoidCallback? onTap;
-  final bool clip;
-
-  @override
-  Widget build(BuildContext context) {
-    final box = Container(
-      padding: padding,
-      clipBehavior: clip ? Clip.antiAlias : Clip.none,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: HaruShadows.s1,
-      ),
-      child: child,
-    );
-    if (onTap == null) return box;
-    return Pressable(onTap: onTap, child: box);
-  }
-}
-
-/// Bordered card (design-system screens): surface + 1px hairline, radius 12.
-class HaruOutlineCard extends StatelessWidget {
-  const HaruOutlineCard({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(20),
-    this.radius = HaruRadius.lg,
-    this.clip = false,
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final double radius;
-  final bool clip;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: padding,
-      clipBehavior: clip ? Clip.antiAlias : Clip.none,
-      decoration: BoxDecoration(
-        color: HaruColors.surface,
-        border: Border.all(color: HaruColors.hairline),
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: child,
-    );
-  }
-}
-
-/// Muted placeholder box: ceramic fill, radius 14 ("이 날 남긴 일지가 없어요").
-class CeramicNote extends StatelessWidget {
-  const CeramicNote(this.text, {super.key, this.padding = const EdgeInsets.all(20)});
-
-  final String text;
-  final EdgeInsets padding;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: HaruColors.ceramic,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: haruText(14, color: HaruColors.inkSecondary),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Segment control
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Ceramic track with a white selected pill (기록 탭, 리포트 주간/월간).
-class PillSegment<T> extends StatelessWidget {
-  const PillSegment({
-    super.key,
-    required this.items,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  final List<(T, String)> items;
-  final T selected;
-  final ValueChanged<T> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: HaruColors.ceramic,
-        borderRadius: BorderRadius.circular(HaruRadius.full),
-      ),
+    return SizedBox(
+      height: 52,
       child: Row(
         children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(width: 4),
-            Expanded(
-              child: Pressable(
-                onTap: () => onChanged(items[i].$1),
-                child: AnimatedContainer(
-                  duration: HaruMotion.base,
-                  height: 34,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: items[i].$1 == selected ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(HaruRadius.full),
-                    boxShadow: items[i].$1 == selected ? HaruShadows.s1 : null,
-                  ),
-                  child: Text(
-                    items[i].$2,
-                    style: haruText(
-                      14,
-                      weight: items[i].$1 == selected ? FontWeight.w700 : FontWeight.w500,
-                      color: items[i].$1 == selected
-                          ? HaruColors.ink
-                          : HaruColors.inkTertiary,
-                    ),
-                  ),
-                ),
-              ),
+          BackChevron(
+            onTap: onBack ?? () => Navigator.of(context).maybePop(),
+            scale: backScale,
+            duration: backDuration,
+            inlineTransition: backInlineTransition,
+          ),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: HaruType.pageTitle,
             ),
-          ],
+          ),
+          SizedBox(width: 44, child: trailing),
         ],
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Half gauge
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Semicircle gauge with a centered value (홈 온도 미니카드, 가족 참여 카드).
-///
-/// The prototype draws a conic-gradient ring 11px thick and reveals it with
-/// `hxSweep` 1.1s cubic-bezier(.3,0,.1,1) after .3s.
-class HalfGauge extends StatelessWidget {
-  const HalfGauge({
+/// 44×44 `arrow_back_ios_new` (22, forest).
+class BackChevron extends StatelessWidget {
+  const BackChevron({
     super.key,
-    required this.percent,
-    required this.color,
-    required this.label,
-    this.width = 104,
-    this.thickness = 11,
+    required this.onTap,
+    this.scale = .95,
+    this.duration = const Duration(milliseconds: 200),
+    this.inlineTransition = true,
   });
 
-  final double percent; // 0–100
-  final Color color;
-  final String label;
-  final double width;
-  final double thickness;
+  final VoidCallback onTap;
+
+  /// [Pressable.scale] / [Pressable.duration] / [Pressable.inlineTransition].
+  final double scale;
+  final Duration duration;
+  final bool inlineTransition;
 
   @override
   Widget build(BuildContext context) {
-    final h = width / 2;
-    return SizedBox(
-      width: width,
-      height: h + 4,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            width: width,
-            height: h,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 1400),
-              curve: const Interval(0.21, 1, curve: Cubic(0.3, 0, 0.1, 1)),
-              builder: (_, t, _) => CustomPaint(
-                painter: _HalfGaugePainter(
-                  fraction: (percent / 100).clamp(0, 1) * t,
-                  color: color,
-                  thickness: thickness,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: haruText(18, weight: FontWeight.w700, height: 1.2),
-            ),
-          ),
-        ],
+    return Pressable(
+      onTap: onTap,
+      scale: scale,
+      duration: duration,
+      inlineTransition: inlineTransition,
+      semanticLabel: '뒤로',
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Icon(Symbols.arrow_back_ios_new_rounded, size: 22, color: HaruColors.forest),
       ),
     );
   }
 }
 
-class _HalfGaugePainter extends CustomPainter {
-  _HalfGaugePainter({
-    required this.fraction,
-    required this.color,
-    required this.thickness,
-  });
-
-  final double fraction;
-  final Color color;
-  final double thickness;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = size.width / 2;
-    final rect = Rect.fromCircle(
-      center: Offset(r, r),
-      radius: r - thickness / 2,
-    );
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = thickness
-      ..color = HaruColors.ceramic;
-    final fill = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = thickness
-      ..color = color;
-    canvas.drawArc(rect, math.pi, math.pi, false, track);
-    if (fraction > 0) canvas.drawArc(rect, math.pi, math.pi * fraction, false, fill);
-  }
-
-  @override
-  bool shouldRepaint(_HalfGaugePainter old) =>
-      old.fraction != fraction || old.color != color;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Empty / error / loading
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Centered empty state: tinted tile + title + description (+ action).
-class HaruEmptyState extends StatelessWidget {
-  const HaruEmptyState({
-    super.key,
-    required this.icon,
-    required this.title,
-    this.description,
-    this.tint = HaruColors.fillTranslucent,
-    this.iconColor = HaruColors.dsInkSecondary,
-    this.tileSize = 52,
-    this.tileRadius = 12,
-    this.iconSize = 24,
-    this.action,
-    this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-    this.titleSize = 16,
-  });
+/// Group caption above a settings card: icon 17 soft green + 14 muted text.
+class SectionCaption extends StatelessWidget {
+  const SectionCaption({super.key, required this.icon, required this.label, this.top = 22});
 
   final IconData icon;
-  final String title;
-  final String? description;
-  final Color tint;
-  final Color iconColor;
-  final double tileSize;
-  final double tileRadius;
-  final double iconSize;
-  final Widget? action;
-  final EdgeInsets padding;
-  final double titleSize;
+  final String label;
+
+  /// margin-top (22, or 8 for the first group on 설정).
+  final double top;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: padding,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      padding: EdgeInsets.fromLTRB(4, top, 4, 8),
+      child: Row(
         children: [
-          Container(
-            width: tileSize,
-            height: tileSize,
-            decoration: BoxDecoration(
-              color: tint,
-              borderRadius: BorderRadius.circular(tileRadius),
-            ),
-            child: Icon(icon, size: iconSize, color: iconColor),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: haruText(titleSize, weight: FontWeight.w600, color: HaruColors.dsInk),
-          ),
-          if (description != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              description!,
-              textAlign: TextAlign.center,
-              style: haruText(14, color: HaruColors.dsInkMuted, height: 1.5),
-            ),
-          ],
-          if (action != null) ...[
-            const SizedBox(height: 14),
-            action!,
-          ],
+          Icon(icon, size: 17, color: HaruColors.softGreen),
+          const SizedBox(width: 6),
+          Text(label, style: hr(14, color: HaruColors.inkMuted)),
         ],
       ),
     );
   }
 }
 
-/// "불러오지 못했어요" with a secondary 다시 시도 button.
-class HaruErrorState extends StatelessWidget {
-  const HaruErrorState({super.key, required this.onRetry});
+/// "🌱 이번 달 참여" — sprout (DS default 18) + forest label.
+class SproutHeading extends StatelessWidget {
+  const SproutHeading(this.label, {super.key, this.size = 16});
 
-  final VoidCallback onRetry;
+  final String label;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return HaruEmptyState(
-      icon: LucideIcons.cloudOff,
-      title: '불러오지 못했어요',
-      titleSize: 17,
-      description: '네트워크 연결을 확인하고\n다시 시도해 주세요.',
-      tileSize: 56,
-      tileRadius: 28,
-      iconSize: 26,
-      iconColor: HaruColors.dsInkMuted,
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 100),
-      action: HaruButton(
-        label: '다시 시도',
-        icon: LucideIcons.rotateCw,
-        variant: HaruButtonVariant.secondary,
-        onPressed: onRetry,
-      ),
+    return Row(
+      children: [
+        const SproutIcon(size: 18),
+        const SizedBox(width: 6),
+        Flexible(child: Text(label, style: hr(size, color: HaruColors.forest))),
+      ],
     );
   }
 }
 
-/// Pulsing skeleton used while a tab's first load is in flight (hxPulse 1.4s).
-class HaruSkeleton extends StatefulWidget {
-  const HaruSkeleton({super.key});
+/// Settings list row: 52 tall, icon 20 soft green, 16px label, hairline
+/// under every row but the last.
+class MenuRow extends StatelessWidget {
+  const MenuRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.onTap,
+    this.trailing,
+    this.chevron = true,
+    this.color,
+    this.iconColor,
+    this.last = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+  final bool chevron;
+  final Color? color;
+  final Color? iconColor;
+  final bool last;
 
   @override
-  State<HaruSkeleton> createState() => _HaruSkeletonState();
+  Widget build(BuildContext context) {
+    final row = Container(
+      height: 52,
+      decoration: BoxDecoration(
+        border: last ? null : const Border(bottom: BorderSide(color: HaruColors.hairline)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: iconColor ?? HaruColors.softGreen),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label, style: hr(16, color: color ?? HaruColors.ink))),
+          if (trailing != null) ...[trailing!, const SizedBox(width: 10)],
+          if (chevron)
+            const Icon(Symbols.chevron_right_rounded, size: 18, color: HaruColors.inkMuted),
+        ],
+      ),
+    );
+    if (onTap == null) return row;
+    // style-active scale(.96) + brightness(.96); the rows have no transition.
+    return Pressable(
+      scale: 0.96,
+      duration: Duration.zero,
+      inlineTransition: false,
+      onTap: onTap,
+      semanticLabel: label,
+      child: row,
+    );
+  }
 }
 
-class _HaruSkeletonState extends State<HaruSkeleton>
-    with SingleTickerProviderStateMixin {
-  late final _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
+/// CSS `zoom` for the 글자 크기 setting: lays [child] out at size / [zoom]
+/// and paints it scaled, so text *and* layout grow together the way the
+/// prototype's `zoom` on the scroll area does.
+class ZoomBox extends StatelessWidget {
+  const ZoomBox({super.key, required this.zoom, required this.child});
+
+  final double zoom;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (zoom == 1) return child;
+    return LayoutBuilder(
+      builder: (context, c) {
+        final mq = MediaQuery.of(context);
+        return ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topLeft,
+            minWidth: c.maxWidth / zoom,
+            maxWidth: c.maxWidth / zoom,
+            minHeight: c.maxHeight / zoom,
+            maxHeight: c.maxHeight / zoom,
+            child: Transform.scale(
+              scale: zoom,
+              alignment: Alignment.topLeft,
+              child: MediaQuery(
+                data: mq.copyWith(
+                  size: mq.size / zoom,
+                  padding: mq.padding / zoom,
+                  viewPadding: mq.viewPadding / zoom,
+                  viewInsets: mq.viewInsets / zoom,
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Left-edge swipe → back, for pages pushed inside the tab navigators (the
+/// fade-up transition has no interactive back gesture of its own).
+class EdgeSwipeBack extends StatefulWidget {
+  const EdgeSwipeBack({super.key, required this.child, this.onBack});
+
+  final Widget child;
+  final VoidCallback? onBack;
+
+  @override
+  State<EdgeSwipeBack> createState() => _EdgeSwipeBackState();
+}
+
+class _EdgeSwipeBackState extends State<EdgeSwipeBack> {
+  double _dx = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        widget.child,
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 20,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragStart: (_) => _dx = 0,
+            onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
+            onHorizontalDragEnd: (d) {
+              if (_dx > 70 || (d.primaryVelocity ?? 0) > 600) {
+                (widget.onBack ?? () => Navigator.of(context).maybePop())();
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entrance animations (the prototype's @keyframes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum EntranceKind {
+  /// hrFadeUp — opacity + translateY(10px), 420ms (.33,1,.68,1).
+  fadeUp,
+
+  /// hrRiseIn — opacity + translateY(14px), 500ms (.2,0,0,1).
+  riseIn,
+
+  /// hrUpA — opacity + translateY(10px), 450ms (.2,0,0,1).
+  up,
+
+  /// hrPop / hrPopA — scale .6 → 1.06 (70%) → 1 with fade.
+  pop,
+
+  /// hrPopIn — opacity + scale(.94), 240–520ms (.33,1,.68,1).
+  popIn,
+
+  /// hrStamp — scale(1.9) rotate(-14deg) → none, fading to [targetOpacity].
+  stamp,
+
+  /// hrGrow — scaleX 0 → 1 from the left, 1s (.3,0,.1,1).
+  grow,
+
+  /// hrFade — opacity only.
+  fade,
+}
+
+/// Plays one of the prototype's entrance keyframes once, after [delay],
+/// with `animation-fill-mode: both` (hidden until it starts).
+class Entrance extends StatefulWidget {
+  const Entrance({
+    super.key,
+    required this.child,
+    this.kind = EntranceKind.fadeUp,
+    this.delay = Duration.zero,
+    this.duration,
+    this.curve,
+    this.targetOpacity = 1,
+  });
+
+  final Widget child;
+  final EntranceKind kind;
+  final Duration delay;
+  final Duration? duration;
+  final Curve? curve;
+  final double targetOpacity;
+
+  @override
+  State<Entrance> createState() => _EntranceState();
+}
+
+class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+  Timer? _timer;
+
+  Duration get _defaultDuration => switch (widget.kind) {
+        EntranceKind.fadeUp => HaruMotion.screen,
+        EntranceKind.riseIn => const Duration(milliseconds: 500),
+        EntranceKind.up => const Duration(milliseconds: 450),
+        EntranceKind.pop => const Duration(milliseconds: 450),
+        EntranceKind.popIn => const Duration(milliseconds: 280),
+        EntranceKind.stamp => const Duration(milliseconds: 400),
+        EntranceKind.grow => const Duration(milliseconds: 1000),
+        EntranceKind.fade => HaruMotion.fade,
+      };
+
+  Curve get _curve =>
+      widget.curve ??
+      switch (widget.kind) {
+        EntranceKind.fadeUp || EntranceKind.popIn => HaruMotion.out,
+        EntranceKind.grow => HaruMotion.grow,
+        EntranceKind.fade => Curves.easeOut,
+        _ => HaruMotion.standard,
+      };
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: widget.duration ?? _defaultDuration);
+    if (widget.delay == Duration.zero) {
+      _c.forward();
+    } else {
+      _timer = Timer(widget.delay, () {
+        if (mounted) _c.forward();
+      });
+    }
+  }
 
   @override
   void dispose() {
+    _timer?.cancel();
     _c.dispose();
     super.dispose();
   }
 
-  Widget _bar(double widthFactor, double h) => FractionallySizedBox(
-        widthFactor: widthFactor,
-        child: Container(
-          height: h,
-          decoration: BoxDecoration(
-            color: HaruColors.fillTranslucent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-      );
+  /// CSS applies the timing function per keyframe segment.
+  double _seg(double t, double a, double b) => _curve.transform(((t - a) / (b - a)).clamp(0, 1));
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _c,
-      builder: (_, child) => Opacity(
-        opacity: 1 - 0.5 * math.sin(_c.value * math.pi),
-        child: child,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          children: [
-            Container(
-              height: 320,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: HaruColors.surface,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: HaruShadows.s1,
+      child: widget.child,
+      builder: (context, child) {
+        final t = _c.value;
+        switch (widget.kind) {
+          case EntranceKind.fadeUp:
+          case EntranceKind.riseIn:
+          case EntranceKind.up:
+            final e = _curve.transform(t);
+            final dy = widget.kind == EntranceKind.riseIn ? 14.0 : 10.0;
+            return Opacity(
+              opacity: e.clamp(0, 1),
+              child: Transform.translate(offset: Offset(0, dy * (1 - e)), child: child),
+            );
+          case EntranceKind.pop:
+            final double scale, op;
+            if (t <= .7) {
+              final e = _seg(t, 0, .7);
+              scale = .6 + (1.06 - .6) * e;
+              op = e;
+            } else {
+              final e = _seg(t, .7, 1);
+              scale = 1.06 + (1 - 1.06) * e;
+              op = 1;
+            }
+            return Opacity(
+              opacity: op.clamp(0, 1),
+              child: Transform.scale(scale: scale, child: child),
+            );
+          case EntranceKind.popIn:
+            final e = _curve.transform(t);
+            return Opacity(
+              opacity: e.clamp(0, 1),
+              child: Transform.scale(scale: .94 + .06 * e, child: child),
+            );
+          case EntranceKind.stamp:
+            final e = _curve.transform(t);
+            return Opacity(
+              opacity: (widget.targetOpacity * e).clamp(0, 1),
+              child: Transform.rotate(
+                angle: -14 * math.pi / 180 * (1 - e),
+                child: Transform.scale(scale: 1.9 - .9 * e, child: child),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _bar(0.4, 12),
-                  const SizedBox(height: 12),
-                  _bar(0.85, 22),
-                  const SizedBox(height: 12),
-                  _bar(0.65, 22),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              height: 96,
-              decoration: BoxDecoration(
-                color: HaruColors.fillTranslucent,
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Opacity(
-              opacity: 0.6,
-              child: Container(
-                height: 96,
-                decoration: BoxDecoration(
-                  color: HaruColors.fillTranslucent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+            );
+          case EntranceKind.grow:
+            final e = _curve.transform(t);
+            return Transform(
+              alignment: Alignment.centerLeft,
+              transform: Matrix4.diagonal3Values(e, 1, 1),
+              child: child,
+            );
+          case EntranceKind.fade:
+            return Opacity(opacity: _curve.transform(t).clamp(0, 1), child: child);
+        }
+      },
     );
   }
 }
 
-/// Entry animations used across the prototype.
-///
-/// hxRise: translateY(14px)→0 + fade; hxFade: translateY(8px)→0 + fade.
-class HaruRise extends StatelessWidget {
-  const HaruRise({
+/// Stagger helper: `animation-delay: calc(i * step + base)`.
+Duration stagger(int i, int stepMs, [int baseMs = 0]) =>
+    Duration(milliseconds: i * stepMs + baseMs);
+
+/// Endless vertical bob: `hrFloat` (3s, −7px) / `hrBob` (2.4s, −6px).
+/// `0%,100% { none } 50% { translateY(-d) }`, ease-in-out.
+class FloatLoop extends StatefulWidget {
+  const FloatLoop({
     super.key,
     required this.child,
+    this.period = const Duration(seconds: 3),
+    this.distance = 7,
     this.delay = Duration.zero,
-    this.duration = const Duration(milliseconds: 500),
-    this.offset = 14,
+    this.enabled = true,
   });
 
   final Widget child;
+  final Duration period;
+  final double distance;
   final Duration delay;
-  final Duration duration;
-  final double offset;
+  final bool enabled;
+
+  @override
+  State<FloatLoop> createState() => _FloatLoopState();
+}
+
+class _FloatLoopState extends State<FloatLoop> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: widget.period);
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(FloatLoop old) {
+    super.didUpdateWidget(old);
+    if (old.enabled != widget.enabled) _sync();
+  }
+
+  void _sync() {
+    _timer?.cancel();
+    if (!widget.enabled) {
+      _c.stop();
+      _c.value = 0;
+      return;
+    }
+    _timer = Timer(widget.delay, () {
+      if (mounted) _c.repeat();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final total = delay + duration;
-    final start = total.inMicroseconds == 0
-        ? 0.0
-        : delay.inMicroseconds / total.inMicroseconds;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: total,
-      curve: Interval(start, 1, curve: HaruMotion.standard),
-      builder: (_, t, c) => Opacity(
-        opacity: t,
-        child: Transform.translate(offset: Offset(0, offset * (1 - t)), child: c),
-      ),
-      child: child,
+    return AnimatedBuilder(
+      animation: _c,
+      child: widget.child,
+      builder: (_, child) {
+        final t = _c.value;
+        final k = Curves.easeInOut.transform(t < .5 ? t * 2 : (1 - t) * 2);
+        return Transform.translate(offset: Offset(0, -widget.distance * k), child: child);
+      },
     );
   }
 }

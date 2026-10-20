@@ -35,6 +35,31 @@ class HttpPendingApi implements PendingApi {
     });
   }
 
+  /// POST / PUT / DELETE with an optional JSON body. Returns the decoded
+  /// body, or null for an empty response.
+  Future<Map<String, dynamic>?> _send(
+    String method,
+    String path, [
+    Map<String, dynamic>? body,
+  ]) {
+    return AuthedCall.run((token) async {
+      final req = http.Request(method, Uri.parse('$_base$path'))
+        ..headers.addAll({
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+          if (body != null) 'Content-Type': 'application/json',
+        });
+      if (body != null) req.body = jsonEncode(body);
+      final res = await http.Response.fromStream(await _client.send(req));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw ApiException.fromResponse(res.statusCode, res.body);
+      }
+      if (res.bodyBytes.isEmpty) return null;
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      return decoded is Map<String, dynamic> ? decoded : null;
+    });
+  }
+
   @override
   Future<StreakSummary> fetchStreak() async =>
       StreakSummary.fromJson(await _get('/api/families/me/streak'));
@@ -94,17 +119,8 @@ class HttpPendingApi implements PendingApi {
       ));
 
   @override
-  Future<void> markAllNotificationsRead() {
-    return AuthedCall.run((token) async {
-      final res = await _client.post(
-        Uri.parse('$_base/api/me/notifications/read-all'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw ApiException.fromResponse(res.statusCode, res.body);
-      }
-    });
-  }
+  Future<void> markAllNotificationsRead() =>
+      _send('POST', '/api/me/notifications/read-all');
 
   @override
   Future<AuthResult> loginWithApple({bool restoreDeletedAccount = false}) {
@@ -115,4 +131,57 @@ class HttpPendingApi implements PendingApi {
     // include yet (BACKEND_API_TODO.md P7).
     throw const FeatureNotReadyException('Apple 로그인은 준비 중이에요.');
   }
+
+  @override
+  Future<AuthResult> loginWithGoogle({bool restoreDeletedAccount = false}) {
+    // The server side is `POST /api/auth/google` with
+    // {idToken, restoreDeletedAccount} → AuthResult. Obtaining idToken needs
+    // the `google_sign_in` package and the iOS/Android OAuth client IDs,
+    // which this build does not include yet (BACKEND_API_TODO.md P8).
+    throw const FeatureNotReadyException('Google 로그인은 준비 중이에요.');
+  }
+
+  @override
+  Future<void> leaveFamily() => _send('DELETE', '/api/families/me/members/me');
+
+  @override
+  Future<void> removeMember(int userId) =>
+      _send('DELETE', '/api/families/me/members/$userId');
+
+  @override
+  Future<void> pokeMember({required int dailyQuestionId, required int userId}) =>
+      _send(
+        'POST',
+        '/api/families/me/daily-questions/$dailyQuestionId/pokes',
+        {'targetUserId': userId},
+      );
+
+  @override
+  Future<void> sendInquiry({
+    required InquiryCategory category,
+    required String content,
+  }) =>
+      _send('POST', '/api/inquiries', {
+        'category': category.wire,
+        'content': content,
+      });
+
+  @override
+  Future<NotificationSettings> fetchNotificationSettings() async =>
+      NotificationSettings.fromJson(await _get('/api/me/notification-settings'));
+
+  @override
+  Future<NotificationSettings> updateNotificationSettings(
+    NotificationSettings settings,
+  ) async {
+    final j = await _send('PUT', '/api/me/notification-settings', settings.toJson());
+    return j == null ? settings : NotificationSettings.fromJson(j);
+  }
+
+  @override
+  Future<void> deleteNotification(int id) =>
+      _send('DELETE', '/api/me/notifications/$id');
+
+  @override
+  Future<void> clearNotifications() => _send('DELETE', '/api/me/notifications');
 }

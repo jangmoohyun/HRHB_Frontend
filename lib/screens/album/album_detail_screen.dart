@@ -1,25 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:hrhb_frontend/data/authed_call.dart';
 import 'package:hrhb_frontend/services/api_client.dart';
+import 'package:hrhb_frontend/services/media_save_service.dart';
 import 'package:hrhb_frontend/theme/text.dart';
 import 'package:hrhb_frontend/theme/tokens.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_layout.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_photos.dart';
+import 'package:hrhb_frontend/widgets/haru/pressable.dart';
 
-import '../archive/answer_photos_screen.dart' show saveToDevice;
 import '../shell/home_shell.dart';
 
-/// 20 앨범 상세 — upload (max 20), select/save/delete, rename, delete album.
+/// 앨범 상세 — 사진 올리기 (max 20), 고르기 → 저장/삭제, 이름 바꾸기, 앨범 삭제.
 class AlbumDetailScreen extends StatefulWidget {
-  const AlbumDetailScreen({super.key, required this.albumId, required this.title});
+  const AlbumDetailScreen({super.key, required this.albumId, required this.title, this.dateLabel});
 
   final int albumId;
   final String title;
+  final String? dateLabel;
 
   @override
   State<AlbumDetailScreen> createState() => _AlbumDetailScreenState();
@@ -74,7 +75,7 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   }
 
   Future<void> _more() async {
-    if (_loadingMore || !_hasMore) return;
+    if (_loadingMore || !_hasMore || _loading) return;
     _loadingMore = true;
     try {
       final d = await AuthedCall.run(
@@ -99,19 +100,12 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     return 'image/jpeg';
   }
 
-  void _toastError(String msg) => HaruToast.show(
-        context,
-        msg,
-        icon: LucideIcons.circleAlert,
-        iconColor: HaruColors.statusAttention,
-      );
-
   Future<void> _uploadPhotos() async {
     if (_upload != null) return;
     final files = await _picker.pickMultiImage(limit: _maxUpload);
     if (files.isEmpty || !mounted) return;
     final picked = files.take(_maxUpload).toList();
-    if (files.length > _maxUpload) HaruToast.show(context, '한 번에 20장까지 올릴 수 있어요');
+    if (files.length > _maxUpload) HaruToast.show(context, '한 번에 20장까지 올릴 수 있어요.');
     setState(() {
       _selecting = false;
       _sel.clear();
@@ -135,17 +129,28 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
       if (!mounted) return;
       setState(() => _upload = null);
       await _load();
-      if (mounted) HaruToast.show(context, '${keys.length}장을 올렸어요');
+      if (!mounted) return;
+      HaruToast.show(context, '사진 ${keys.length}장을 올렸어요.');
+      HomeShellScope.maybeOf(context)?.notifyDataChanged();
     } catch (_) {
       if (!mounted) return;
       setState(() => _upload = null);
-      _toastError('사진을 올리지 못했어요');
+      HaruToast.show(context, '사진을 올리지 못했어요.');
+    }
+  }
+
+  Future<void> _save(List<String> urls) async {
+    try {
+      await const MediaSaveService().saveImageUrls(urls);
+      if (mounted) HaruToast.show(context, urls.length == 1 ? '사진을 저장했어요.' : '사진 ${urls.length}장을 저장했어요.');
+    } catch (e) {
+      if (mounted) HaruToast.show(context, e is StateError ? e.message : '사진을 저장하지 못했어요.');
     }
   }
 
   Future<void> _saveSelected() async {
     setState(() => _busy = true);
-    await saveToDevice(context, [for (final i in _sel) _photos[i].imageUrl]);
+    await _save([for (final i in _sel) _photos[i].imageUrl]);
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -157,10 +162,9 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
   Future<bool> _deletePhotos(List<int> indexes) async {
     final ok = await showHaruConfirm(
       context,
-      title: '사진 ${indexes.length}장을 삭제할까요?',
-      body: '삭제한 사진은 가족 모두의 앨범에서 사라져요.',
-      confirmLabel: '삭제',
-      danger: true,
+      title: '사진 ${indexes.length}장을 지울까요?',
+      body: '지운 사진은 가족 모두의 앨범에서 사라져요.',
+      okLabel: '지우기',
     );
     if (!ok || !mounted) return false;
     try {
@@ -172,10 +176,10 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
         _sel.clear();
       });
       await _load();
-      if (mounted) HaruToast.show(context, '${ids.length}장을 삭제했어요');
+      if (mounted) HaruToast.show(context, '사진 ${ids.length}장을 지웠어요.');
       return true;
     } catch (_) {
-      if (mounted) _toastError('사진을 삭제하지 못했어요');
+      if (mounted) HaruToast.show(context, '사진을 지우지 못했어요.');
       return false;
     }
   }
@@ -184,115 +188,80 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     final name = await showHaruInputDialog(
       context,
       title: '앨범 이름 바꾸기',
-      initialValue: _title,
-      hint: '앨범 이름',
-      confirmLabel: '저장',
+      placeholder: '앨범 이름을 입력해주세요',
+      okLabel: '저장',
+      initial: _title,
     );
     if (name == null || !mounted) return;
     try {
       final a = await AuthedCall.run((t) => _api.renameFamilyAlbum(accessToken: t, albumId: widget.albumId, name: name));
       if (!mounted) return;
       setState(() => _title = a.title);
-      HaruToast.show(context, '앨범 이름을 바꿨어요');
+      HaruToast.show(context, '앨범 이름을 바꿨어요.');
     } catch (_) {
-      if (mounted) _toastError('이름을 바꾸지 못했어요');
+      if (mounted) HaruToast.show(context, '이름을 바꾸지 못했어요.');
     }
   }
 
   Future<void> _deleteAlbum() async {
     final ok = await showHaruConfirm(
       context,
-      title: '앨범을 삭제할까요?',
-      body: '앨범 안의 사진 $_total장도 함께 삭제돼요.',
-      confirmLabel: '삭제',
-      danger: true,
+      title: '앨범을 지울까요?',
+      body: '앨범 안의 사진 $_total장도 함께 지워져요.',
+      okLabel: '지우기',
     );
     if (!ok || !mounted) return;
     try {
       await AuthedCall.run((t) => _api.deleteFamilyAlbum(accessToken: t, albumId: widget.albumId));
       if (!mounted) return;
       Navigator.of(context).pop();
-      HaruToast.show(context, '앨범을 삭제했어요');
+      HaruToast.show(context, '앨범을 지웠어요.');
     } catch (_) {
-      if (mounted) _toastError('앨범을 삭제하지 못했어요');
+      if (mounted) HaruToast.show(context, '앨범을 지우지 못했어요.');
     }
   }
 
   Future<void> _openMenu() async {
-    final choice = await showGeneralDialog<String>(
-      context: context,
-      useRootNavigator: true,
-      barrierDismissible: true,
-      barrierLabel: '닫기',
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 200),
-      pageBuilder: (ctx, _, _) {
-        final top = MediaQuery.paddingOf(ctx).top + 56;
-        Widget item(String value, IconData icon, String label, {Color? color}) => GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(ctx).pop(value),
-              child: Container(
-                height: 40,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
-                  children: [
-                    Icon(icon, size: 18, color: color ?? HaruColors.dsInk),
-                    const SizedBox(width: 10),
-                    Text(label, style: haruText(15, color: color ?? HaruColors.dsInk)),
-                  ],
+    final choice = await showHaruSheet<String>(
+      context,
+      builder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SheetTitle(_title),
+          const SizedBox(height: 10),
+          HrCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Column(
+              children: [
+                MenuRow(
+                  icon: Symbols.check_circle_rounded,
+                  label: '사진 고르기',
+                  onTap: () => Navigator.of(ctx).pop('select'),
                 ),
-              ),
-            );
-        return Stack(
-          children: [
-            Positioned(
-              top: top,
-              right: 16,
-              child: Material(
-                type: MaterialType.transparency,
-                child: Container(
-                  constraints: const BoxConstraints(minWidth: 168),
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: HaruColors.surface,
-                    borderRadius: BorderRadius.circular(HaruRadius.md),
-                    boxShadow: HaruShadows.s2,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      item('select', LucideIcons.circleCheck, '사진 선택'),
-                      item('rename', LucideIcons.pencil, '이름 바꾸기'),
-                      item('delete', LucideIcons.trash2, '앨범 삭제', color: HaruColors.statusAttention),
-                    ],
-                  ),
+                MenuRow(
+                  icon: Symbols.edit_rounded,
+                  label: '앨범 이름 바꾸기',
+                  onTap: () => Navigator.of(ctx).pop('rename'),
                 ),
-              ),
+                MenuRow(
+                  icon: Symbols.delete_rounded,
+                  label: '앨범 지우기',
+                  color: HaruColors.danger,
+                  iconColor: HaruColors.danger,
+                  chevron: false,
+                  last: true,
+                  onTap: () => Navigator.of(ctx).pop('delete'),
+                ),
+              ],
             ),
-          ],
-        );
-      },
-      transitionBuilder: (_, anim, _, child) {
-        final c = CurvedAnimation(parent: anim, curve: HaruMotion.standard);
-        return FadeTransition(
-          opacity: c,
-          child: ScaleTransition(
-            alignment: Alignment.topRight,
-            scale: Tween(begin: 0.92, end: 1.0).animate(c),
-            child: child,
           ),
-        );
-      },
+        ],
+      ),
     );
     if (!mounted) return;
     switch (choice) {
       case 'select':
-        // Same item toggles selection mode off again (prototype toggleSelect).
-        setState(() {
-          _selecting = !_selecting;
-          _sel.clear();
-        });
+        setState(() => _selecting = true);
       case 'rename':
         await _rename();
       case 'delete':
@@ -300,158 +269,222 @@ class _AlbumDetailScreenState extends State<AlbumDetailScreen> {
     }
   }
 
-  List<PhotoItem> get _items => [
-        for (var i = 0; i < _photos.length; i++)
-          PhotoItem(
-            url: _photos[i].imageUrl,
-            id: _photos[i].photoId,
-            who: _title,
-            date: '${_photos[i].savedAt.year}.${_photos[i].savedAt.month.toString().padLeft(2, '0')}.${_photos[i].savedAt.day.toString().padLeft(2, '0')}',
-            fallbackTint: HaruColors.tints[i % HaruColors.tints.length],
-          ),
-      ];
+  Future<void> _openViewer(int i) => PhotoViewerPage.open(
+        context,
+        items: [
+          for (var k = 0; k < _photos.length; k++)
+            PhotoItem(
+              url: _photos[k].imageUrl,
+              id: _photos[k].photoId,
+              date: '${_photos[k].savedAt.month}/${_photos[k].savedAt.day}',
+              who: _title,
+              tint: HaruColors.tints[k % HaruColors.tints.length],
+            ),
+        ],
+        index: i,
+        onSave: (item) => _save([item.url]),
+        onDelete: (item) async {
+          final idx = _photos.indexWhere((p) => p.photoId == item.id);
+          if (idx < 0) return false;
+          return _deletePhotos([idx]);
+        },
+      );
 
-  void _tap(int i) {
+  void _tapPhoto(int i) {
     if (_selecting) {
       setState(() => _sel.contains(i) ? _sel.remove(i) : _sel.add(i));
-      return;
+    } else {
+      _openViewer(i);
     }
-    final items = _items;
-    PhotoViewerPage.open(
-      context,
-      items: items,
-      index: i,
-      onSave: (item) => saveToDevice(context, [item.url]),
-      onDelete: (item) => _deletePhotos([items.indexOf(item)]),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final up = _upload;
-    return Scaffold(
-      backgroundColor: HaruColors.canvas,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                HaruSubHeader(
-                  title: _title,
-                  trailing: [
-                    HaruIconButton(icon: LucideIcons.imagePlus, label: '사진 올리기', onPressed: _uploadPhotos),
-                    HaruIconButton(
-                      icon: LucideIcons.ellipsisVertical,
-                      label: '더보기',
-                      onPressed: _openMenu,
-                    ),
-                  ],
-                ),
-                if (up != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: HaruOutlineCard(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '사진을 올리고 있어요',
-                                  style: haruText(14, weight: FontWeight.w600, color: HaruColors.dsInk),
-                                ),
-                              ),
-                              Text('${up.$1} / ${up.$2}', style: haruText(14, color: HaruColors.dsInkMuted)),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(HaruRadius.full),
-                            child: SizedBox(
-                              height: 6,
-                              child: Stack(
-                                children: [
-                                  const Positioned.fill(child: ColoredBox(color: HaruColors.fillTranslucent)),
-                                  AnimatedFractionallySizedBox(
-                                    duration: const Duration(milliseconds: 300),
-                                    widthFactor: up.$2 == 0 ? 0 : up.$1 / up.$2,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: HaruColors.primary,
-                                        borderRadius: BorderRadius.circular(HaruRadius.full),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
+    return EdgeSwipeBack(
+      child: Stack(
+        children: [
+          NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.metrics.extentAfter < 400) _more();
+              return false;
+            },
+            child: RefreshIndicator(
+              color: HaruColors.forest,
+              backgroundColor: HaruColors.ivory,
+              onRefresh: _load,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(16, 0, 16, kNavClearance + (_selecting ? 60 : 0)),
+                children: [
+                  SubHeader(
+                    title: _title,
+                    trailing: Pressable(
+                      onTap: _selecting
+                          ? () => setState(() {
+                                _selecting = false;
+                                _sel.clear();
+                              })
+                          : _openMenu,
+                      semanticLabel: _selecting ? '고르기 끝내기' : '앨범 메뉴',
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: _selecting
+                            ? Center(child: Text('완료', style: hr(15, color: HaruColors.forest)))
+                            : const Icon(Symbols.more_horiz_rounded, size: 24, color: HaruColors.forest),
                       ),
                     ),
                   ),
-                Expanded(
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator(color: HaruColors.primary))
-                      : _error
-                          ? HaruErrorState(onRetry: _load)
-                          : _photos.isEmpty && up == null
-                              ? HaruEmptyState(
-                                  icon: LucideIcons.images,
-                                  title: '아직 사진이 없어요',
-                                  titleSize: 17,
-                                  description: '한 번에 20장까지 올릴 수 있어요.',
-                                  tint: HaruColors.accentSky,
-                                  tileSize: 56,
-                                  iconSize: 26,
-                                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 120),
-                                  action: HaruButton(label: '사진 올리기', onPressed: _uploadPhotos),
-                                )
-                              : NotificationListener<ScrollNotification>(
-                                  onNotification: (n) {
-                                    if (n.metrics.extentAfter < 400) _more();
-                                    return false;
-                                  },
-                                  child: RefreshIndicator(
-                                    color: HaruColors.primary,
-                                    onRefresh: _load,
-                                    child: ListView(
-                                      physics: const AlwaysScrollableScrollPhysics(),
-                                      padding: EdgeInsets.fromLTRB(16, 0, 16, kTabBarClearance + (_selecting ? 80 : 0)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '사진 $_total장${(widget.dateLabel ?? '').isEmpty ? '' : ' · ${widget.dateLabel}'}',
+                            style: hr(14, color: HaruColors.inkMuted),
+                          ),
+                        ),
+                        Pressable(
+                          onTap: _uploadPhotos,
+                          scale: .96,
+                          duration: Duration.zero,
+                          inlineTransition: false,
+                          semanticLabel: '사진 올리기',
+                          child: Container(
+                            height: 34,
+                            padding: const EdgeInsets.fromLTRB(8, 0, 12, 0),
+                            decoration: BoxDecoration(
+                              color: HaruColors.cta,
+                              borderRadius: BorderRadius.circular(HaruRadius.full),
+                              boxShadow: HaruShadows.shadow3,
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Symbols.add_photo_alternate_rounded, size: 18, color: Colors.white),
+                                const SizedBox(width: 3),
+                                Text(
+                                  up == null ? '사진 올리기' : '올리는 중 ${up.$1}/${up.$2}',
+                                  style: hr(15, color: Colors.white),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_error)
+                    _message('사진을 불러오지 못했어요.\n눌러서 다시 시도해 주세요.', onTap: _load)
+                  else if (!_loading && _photos.isEmpty)
+                    _message('아직 사진이 없어요.\n첫 사진을 올려 보세요.')
+                  else
+                    LayoutBuilder(
+                      builder: (context, c) {
+                        final w = (c.maxWidth - 8) / 3;
+                        return Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            for (var i = 0; i < _photos.length; i++)
+                              Entrance(
+                                key: ValueKey(_photos[i].photoId),
+                                kind: EntranceKind.pop,
+                                delay: stagger(i % _pageSize, 25),
+                                child: GestureDetector(
+                                  onTap: () => _tapPhoto(i),
+                                  onLongPress: () => setState(() {
+                                    _selecting = true;
+                                    _sel.add(i);
+                                  }),
+                                  child: SizedBox(
+                                    width: w,
+                                    height: w,
+                                    child: Stack(
+                                      fit: StackFit.expand,
                                       children: [
-                                        PhotoGrid(
-                                          items: _items,
-                                          onTap: _tap,
-                                          selecting: _selecting,
-                                          selected: _sel,
-                                          gap: 3,
-                                          radius: 4,
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: HaruNetImage(
+                                            url: _photos[i].imageUrl,
+                                            tint: HaruColors.tints[i % HaruColors.tints.length],
+                                          ),
                                         ),
+                                        if (_selecting) _SelectMark(selected: _sel.contains(i)),
                                       ],
                                     ),
                                   ),
                                 ),
-                ),
-              ],
-            ),
-            if (_selecting)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 92,
-                child: SelectionBar(
-                  count: _sel.length,
-                  busy: _busy,
-                  onSave: _saveSelected,
-                  onDelete: () => _deletePhotos(_sel.toList()..sort()),
-                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                ],
               ),
-          ],
-        ),
+            ),
+          ),
+          if (_selecting)
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 98,
+              child: SelectionBar(
+                count: _sel.length,
+                busy: _busy,
+                onSave: _saveSelected,
+                onDelete: () => _deletePhotos(_sel.toList()..sort()),
+              ),
+            ),
+        ],
       ),
+    );
+  }
+
+  Widget _message(String text, {VoidCallback? onTap}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 60),
+        child: Center(
+          child: Pressable(
+            onTap: onTap,
+            child: Text(text, textAlign: TextAlign.center, style: hr(15, color: HaruColors.inkMuted, height: 1.6)),
+          ),
+        ),
+      );
+}
+
+class _SelectMark extends StatelessWidget {
+  const _SelectMark({required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        if (selected)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: HaruColors.cta, width: 3),
+            ),
+            child: const SizedBox.expand(),
+          ),
+        Positioned(
+          top: 6,
+          right: 6,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              color: selected ? HaruColors.cta : const Color(0x33000000),
+            ),
+            child: selected ? const Icon(Symbols.check_rounded, size: 14, color: Colors.white) : null,
+          ),
+        ),
+      ],
     );
   }
 }

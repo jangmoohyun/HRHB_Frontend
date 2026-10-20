@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../theme/text.dart';
 import '../../theme/tokens.dart';
-import 'haru_button.dart';
+import 'pressable.dart';
 
 class PhotoItem {
   const PhotoItem({
@@ -12,7 +12,7 @@ class PhotoItem {
     this.date,
     this.who,
     this.caption,
-    this.fallbackTint = HaruColors.accentSky,
+    this.tint = HaruColors.mint,
   });
 
   final String url;
@@ -22,155 +22,44 @@ class PhotoItem {
   final String? date;
   final String? who;
   final String? caption;
-  final Color fallbackTint;
+  final Color tint;
 }
 
-/// Network image with the prototype's tinted placeholder while loading/failing.
+/// Network image over the prototype's tinted placeholder (`image` icon on a
+/// pastel tile) while loading or when it fails.
 class HaruNetImage extends StatelessWidget {
-  const HaruNetImage({super.key, required this.url, required this.tint, this.fit = BoxFit.cover});
+  const HaruNetImage({
+    super.key,
+    required this.url,
+    this.tint = HaruColors.mint,
+    this.fit = BoxFit.cover,
+    this.iconSize = 22,
+  });
 
   final String url;
   final Color tint;
   final BoxFit fit;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
+    final placeholder = ColoredBox(
+      color: tint,
+      child: Center(
+        child: Icon(Symbols.image_rounded, size: iconSize, color: HaruColors.softGreen),
+      ),
+    );
+    if (url.isEmpty) return placeholder;
     return Image.network(
       url,
       fit: fit,
-      loadingBuilder: (_, child, progress) =>
-          progress == null ? child : ColoredBox(color: tint),
-      errorBuilder: (_, _, _) => ColoredBox(
-        color: tint,
-        child: const Center(
-          child: Icon(LucideIcons.image, size: 24, color: HaruColors.dsInkSecondary),
-        ),
-      ),
+      loadingBuilder: (_, child, progress) => progress == null ? child : placeholder,
+      errorBuilder: (_, _, _) => placeholder,
     );
   }
 }
 
-/// Square photo grid (3 columns) with optional captions and selection marks.
-class PhotoGrid extends StatelessWidget {
-  const PhotoGrid({
-    super.key,
-    required this.items,
-    required this.onTap,
-    this.selecting = false,
-    this.selected = const {},
-    this.captions = false,
-    this.gap = 8,
-    this.radius = 8,
-    this.captionStyleVer2 = false,
-  });
-
-  final List<PhotoItem> items;
-  final ValueChanged<int> onTap;
-  final bool selecting;
-  final Set<int> selected;
-  final bool captions;
-  final double gap;
-  final double radius;
-
-  /// 기록 > 사진 uses the VER2 caption colors.
-  final bool captionStyleVer2;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, c) {
-        final w = (c.maxWidth - gap * 2) / 3;
-        return Wrap(
-          spacing: gap,
-          runSpacing: captions ? 0 : gap,
-          children: [
-            for (var i = 0; i < items.length; i++)
-              SizedBox(
-                width: w,
-                child: GestureDetector(
-                  onTap: () => onTap(i),
-                  child: Column(
-                    children: [
-                      SizedBox(
-                        width: w,
-                        height: w,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(radius),
-                              child: HaruNetImage(url: items[i].url, tint: items[i].fallbackTint),
-                            ),
-                            if (selecting && selected.contains(i))
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(radius),
-                                  border: Border.all(color: HaruColors.primary, width: 3),
-                                ),
-                              ),
-                            if (selecting)
-                              Positioned(
-                                top: 6,
-                                right: 6,
-                                child: Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2),
-                                    color: selected.contains(i)
-                                        ? HaruColors.primary
-                                        : const Color(0x2E000000),
-                                  ),
-                                  child: selected.contains(i)
-                                      ? const Icon(LucideIcons.check, size: 14, color: Colors.white)
-                                      : null,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (captions)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4, bottom: 8),
-                          child: Column(
-                            children: [
-                              Text(
-                                items[i].date ?? '',
-                                style: haruText(
-                                  12,
-                                  color: captionStyleVer2
-                                      ? HaruColors.inkSecondary
-                                      : HaruColors.dsInkFaint,
-                                ),
-                              ),
-                              Text(
-                                items[i].who ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: haruText(
-                                  12,
-                                  weight: captionStyleVer2 ? FontWeight.w600 : FontWeight.w500,
-                                  color: captionStyleVer2
-                                      ? HaruColors.ink
-                                      : HaruColors.dsInkSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-/// Floating bar shown in selection mode (bottom 92px, above the tab bar).
+/// Floating bar shown in album selection mode.
 class SelectionBar extends StatelessWidget {
   const SelectionBar({
     super.key,
@@ -188,10 +77,23 @@ class SelectionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final none = count == 0;
+    Widget action(String label, Color fg, Color bg, VoidCallback? onTap) => Pressable(
+          onTap: onTap,
+          child: Opacity(
+            opacity: onTap == null ? .45 : 1,
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(HaruRadius.full)),
+              alignment: Alignment.center,
+              child: Text(label, style: hr(15, color: fg)),
+            ),
+          ),
+        );
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 300),
-      curve: HaruMotion.standard,
+      curve: HaruMotion.out,
       builder: (_, t, c) => Opacity(
         opacity: t,
         child: Transform.translate(offset: Offset(0, 16 * (1 - t)), child: c),
@@ -199,42 +101,22 @@ class SelectionBar extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(18, 10, 10, 10),
         decoration: BoxDecoration(
-          color: HaruColors.surface,
-          borderRadius: BorderRadius.circular(HaruRadius.lg),
-          boxShadow: HaruShadows.s2,
+          color: HaruColors.forest,
+          borderRadius: BorderRadius.circular(HaruRadius.md),
+          boxShadow: HaruShadows.shadow2,
         ),
         child: Row(
           children: [
             Expanded(
               child: Text(
-                none ? '사진을 선택하세요' : '$count장 선택됨',
-                style: haruText(15, weight: FontWeight.w600, color: HaruColors.dsInk),
+                none ? '사진을 골라 주세요' : '$count장 골랐어요',
+                style: hr(15, color: Colors.white),
               ),
             ),
-            HaruButton(
-              label: '저장',
-              icon: LucideIcons.download,
-              variant: HaruButtonVariant.secondary,
-              loading: busy,
-              onPressed: none ? null : onSave,
-            ),
+            action('저장', HaruColors.forest, HaruColors.ivory, none || busy ? null : onSave),
             if (onDelete != null) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: none ? null : onDelete,
-                child: Opacity(
-                  opacity: none ? 0.4 : 1,
-                  child: Container(
-                    height: 40,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    alignment: Alignment.center,
-                    child: Text(
-                      '삭제',
-                      style: haruText(16, weight: FontWeight.w500, color: HaruColors.statusAttention),
-                    ),
-                  ),
-                ),
-              ),
+              const SizedBox(width: 6),
+              action('삭제', Colors.white, HaruColors.danger, none || busy ? null : onDelete),
             ],
           ],
         ),
@@ -243,7 +125,7 @@ class SelectionBar extends StatelessWidget {
   }
 }
 
-/// Full-screen photo viewer (canvas-soft, counter, save, optional delete).
+/// Full-screen photo viewer (cream, counter, save, optional delete).
 class PhotoViewerPage extends StatefulWidget {
   const PhotoViewerPage({
     super.key,
@@ -278,10 +160,10 @@ class PhotoViewerPage extends StatefulWidget {
           onDelete: onDelete,
         ),
         transitionsBuilder: (_, anim, _, child) {
-          final c = CurvedAnimation(parent: anim, curve: HaruMotion.standard);
+          final c = CurvedAnimation(parent: anim, curve: HaruMotion.out);
           return FadeTransition(
             opacity: c,
-            child: ScaleTransition(scale: Tween(begin: 0.92, end: 1.0).animate(c), child: child),
+            child: ScaleTransition(scale: Tween(begin: .94, end: 1.0).animate(c), child: child),
           );
         },
       ),
@@ -305,36 +187,30 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
   @override
   Widget build(BuildContext context) {
     final item = widget.items[_index];
+    Widget iconButton(IconData icon, String label, VoidCallback onTap) => Pressable(
+          onTap: onTap,
+          semanticLabel: label,
+          child: SizedBox(width: 44, height: 44, child: Icon(icon, size: 24, color: HaruColors.forest)),
+        );
     return Scaffold(
-      backgroundColor: HaruColors.canvasSoft,
+      backgroundColor: HaruColors.cream,
       body: SafeArea(
         child: Column(
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 52),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                child: Row(
-                  children: [
-                    HaruIconButton(
-                      icon: LucideIcons.x,
-                      label: '닫기',
-                      onPressed: () => Navigator.of(context).pop(),
+            SizedBox(
+              height: 52,
+              child: Row(
+                children: [
+                  iconButton(Symbols.close_rounded, '닫기', () => Navigator.of(context).pop()),
+                  Expanded(
+                    child: Text(
+                      '${_index + 1} / ${widget.items.length}',
+                      textAlign: TextAlign.center,
+                      style: hr(17, color: HaruColors.forest),
                     ),
-                    Expanded(
-                      child: Text(
-                        '${_index + 1} / ${widget.items.length}',
-                        textAlign: TextAlign.center,
-                        style: haruText(15, weight: FontWeight.w600, color: HaruColors.dsInk),
-                      ),
-                    ),
-                    HaruIconButton(
-                      icon: LucideIcons.download,
-                      label: '저장',
-                      onPressed: () => widget.onSave(item),
-                    ),
-                  ],
-                ),
+                  ),
+                  iconButton(Symbols.download_rounded, '저장', () => widget.onSave(item)),
+                ],
               ),
             ),
             Expanded(
@@ -343,19 +219,17 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
                 itemCount: widget.items.length,
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Center(
-                    child: AspectRatio(
-                      aspectRatio: 3 / 4,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(HaruRadius.lg),
-                        child: InteractiveViewer(
-                          maxScale: 4,
-                          child: HaruNetImage(
-                            url: widget.items[i].url,
-                            tint: widget.items[i].fallbackTint,
-                            fit: BoxFit.contain,
-                          ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(HaruRadius.lg),
+                      child: InteractiveViewer(
+                        maxScale: 4,
+                        child: HaruNetImage(
+                          url: widget.items[i].url,
+                          tint: widget.items[i].tint,
+                          fit: BoxFit.contain,
+                          iconSize: 32,
                         ),
                       ),
                     ),
@@ -364,7 +238,7 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -372,18 +246,18 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text(item.who ?? '', style: haruText(15, weight: FontWeight.w600, color: HaruColors.dsInk)),
+                      Text(item.who ?? '', style: hrHand(18)),
                       const SizedBox(width: 8),
-                      Text(item.date ?? '', style: haruText(13, color: HaruColors.dsInkFaint)),
+                      Text(item.date ?? '', style: hr(13.5, color: HaruColors.inkMuted)),
                     ],
                   ),
                   if ((item.caption ?? '').isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    Text(item.caption!, style: haruText(14, height: 1.5, color: HaruColors.dsInkMuted)),
+                    Text(item.caption!, style: hrQuestion(17, height: 1.4)),
                   ],
                   if (widget.onDelete != null) ...[
-                    const SizedBox(height: 16),
-                    GestureDetector(
+                    const SizedBox(height: 14),
+                    Pressable(
                       onTap: () async {
                         final deleted = await widget.onDelete!(item);
                         if (deleted && context.mounted) Navigator.of(context).pop();
@@ -393,9 +267,9 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(LucideIcons.trash2, size: 16, color: HaruColors.statusAttention),
+                            const Icon(Symbols.delete_rounded, size: 18, color: HaruColors.danger),
                             const SizedBox(width: 6),
-                            Text('이 사진 삭제', style: haruText(15, color: HaruColors.statusAttention)),
+                            Text('이 사진 삭제', style: hr(15, color: HaruColors.danger)),
                           ],
                         ),
                       ),
@@ -407,100 +281,6 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Vertical ±°C bar chart (최근 6일간의 변화, 리포트 온도 변화).
-class TempBarChart extends StatelessWidget {
-  const TempBarChart({super.key, required this.values, required this.labels});
-
-  final List<double> values;
-  final List<String> labels;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SizedBox(
-          height: 140,
-          child: Stack(
-            children: [
-              const Positioned(
-                left: 0,
-                right: 0,
-                top: 70,
-                child: SizedBox(height: 1, child: ColoredBox(color: HaruColors.inputBorder)),
-              ),
-              Row(
-                children: [
-                  for (final v in values)
-                    Expanded(
-                      child: LayoutBuilder(builder: (_, c) {
-                        final h = (v.abs() * 56).clamp(3, 140).toDouble();
-                        final top = v > 0 ? 70 - h : v < 0 ? 70.0 : 68.5;
-                        final label = v == 0
-                            ? '0'
-                            : '${v > 0 ? '+' : '−'}${v.abs().toStringAsFixed(1)}';
-                        final labelTop = v >= 0 ? top - 18 : top + h + 4;
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Positioned(
-                              left: c.maxWidth / 2 - 14,
-                              top: top,
-                              child: TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0, end: 1),
-                                duration: const Duration(milliseconds: 600),
-                                curve: HaruMotion.standard,
-                                builder: (_, t, _) => Container(
-                                  width: 28,
-                                  height: h,
-                                  decoration: BoxDecoration(
-                                    color: (v > 0
-                                            ? HaruColors.accentOrange
-                                            : v < 0
-                                                ? HaruColors.accentSky
-                                                : HaruColors.inputBorder)
-                                        .withValues(alpha: t),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              top: labelTop,
-                              child: Text(
-                                label,
-                                textAlign: TextAlign.center,
-                                style: haruText(12, weight: FontWeight.w600, color: HaruColors.dsInkSecondary, height: 1.2),
-                              ),
-                            ),
-                          ],
-                        );
-                      }),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            for (final l in labels)
-              Expanded(
-                child: Text(
-                  l,
-                  textAlign: TextAlign.center,
-                  style: haruText(12, color: HaruColors.dsInkFaint),
-                ),
-              ),
-          ],
-        ),
-      ],
     );
   }
 }

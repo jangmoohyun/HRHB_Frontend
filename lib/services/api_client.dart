@@ -1463,12 +1463,17 @@ class MyFamilyResult {
     required this.familyName,
     required this.inviteCode,
     required this.members,
+    this.createdAt,
   });
 
   final int familyId;
   final String familyName;
   final String inviteCode;
   final List<FamilyMemberResult> members;
+
+  /// "함께한 지 128일". Optional until the backend adds it
+  /// (BACKEND_API_TODO.md); null hides the count.
+  final DateTime? createdAt;
 
   factory MyFamilyResult.fromJson(Map<String, dynamic> json) {
     final rawMembers = json['members'] as List<dynamic>? ?? const [];
@@ -1479,6 +1484,7 @@ class MyFamilyResult {
       members: rawMembers
           .map((e) => FamilyMemberResult.fromJson(e as Map<String, dynamic>))
           .toList(),
+      createdAt: _parseOptionalDateTime(json['createdAt']),
     );
   }
 }

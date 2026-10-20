@@ -1,33 +1,27 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'dart:async';
 
-import 'package:hrhb_frontend/data/app_prefs.dart';
+import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
 import 'package:hrhb_frontend/data/authed_call.dart';
 import 'package:hrhb_frontend/data/family_context.dart';
 import 'package:hrhb_frontend/data/pending/pending_api.dart';
-import 'package:hrhb_frontend/data/pending/pending_models.dart';
 import 'package:hrhb_frontend/services/api_client.dart';
-import 'package:hrhb_frontend/services/push_notification_service.dart';
-import 'package:hrhb_frontend/services/token_storage.dart';
 import 'package:hrhb_frontend/theme/text.dart';
 import 'package:hrhb_frontend/theme/tokens.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_basics.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_family.dart';
+import 'package:hrhb_frontend/utils/korean.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_controls.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_layout.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_temperature.dart';
 import 'package:hrhb_frontend/widgets/haru/pressable.dart';
 
-import '../login/login_screen.dart';
 import '../shell/home_shell.dart';
-import 'temperature_screen.dart';
+import 'settings_page.dart';
 
-const _roles = ['아빠', '엄마', '아들', '딸'];
-const _roleCodes = {'아빠': 'FATHER', '엄마': 'MOTHER', '아들': 'SON', '딸': 'DAUGHTER'};
-const _orders = ['첫째', '둘째', '셋째', '넷째', '다섯째'];
 
-/// 가족 탭 — family card, this month's participation, temperature, settings.
+
+/// 가족 탭 — family card, temperature gauge, this month's participation;
+/// ⚙ opens 설정.
 class FamilyTabScreen extends StatefulWidget {
   const FamilyTabScreen({super.key});
 
@@ -35,25 +29,54 @@ class FamilyTabScreen extends StatefulWidget {
   State<FamilyTabScreen> createState() => _FamilyTabScreenState();
 }
 
-class _FamilyTabScreenState extends State<FamilyTabScreen> {
+class _FamilyTabScreenState extends State<FamilyTabScreen> with SingleTickerProviderStateMixin {
   final _api = ApiClient();
   FamilySnapshot? _fam;
-  List<MemberParticipation>? _participation;
   FamilyTemperatureResult? _temp;
-  bool _notify = true;
-  bool _loading = true;
-  bool _error = false;
+  Map<DateTime, Set<int>>? _status;
+  bool _codeLit = false;
+  HomeShellState? _shell;
+  bool _visible = false;
+
+  // The prototype swaps pages: coming back from 설정 remounts the tab, so
+  // its hrFadeUp plays again (tab switches get theirs from the shell).
+  bool _covered = false;
+  int _entry = 0;
+
+  // Gauge count-up from 20° (1.6s after 300ms) whenever the tab shows.
+  late final _gaugeC = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600));
+  Timer? _gaugeDelay;
 
   @override
   void initState() {
     super.initState();
+    _fam = FamilyContext.instance.value;
     FamilyContext.instance.addListener(_onFamily);
     _load();
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final shell = HomeShellScope.maybeOf(context);
+    if (shell != _shell) {
+      _shell?.tabListenable.removeListener(_syncVisibility);
+      _shell?.refreshTick.removeListener(_load);
+      _shell = shell;
+      _shell?.tabListenable.addListener(_syncVisibility);
+      _shell?.refreshTick.addListener(_load);
+    }
+    ModalRoute.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncVisibility());
+  }
+
+  @override
   void dispose() {
     FamilyContext.instance.removeListener(_onFamily);
+    _shell?.tabListenable.removeListener(_syncVisibility);
+    _shell?.refreshTick.removeListener(_load);
+    _gaugeDelay?.cancel();
+    _gaugeC.dispose();
     super.dispose();
   }
 
@@ -61,447 +84,185 @@ class _FamilyTabScreenState extends State<FamilyTabScreen> {
     if (mounted) setState(() => _fam = FamilyContext.instance.value);
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _error = false;
-      _loading = _fam == null;
+  void _syncVisibility() {
+    if (!mounted) return;
+    final onTab = _shell?.tabListenable.value == HaruTab.family;
+    final current = ModalRoute.of(context)?.isCurrent ?? true;
+    final visible = onTab && current;
+    if (!onTab) _covered = false;
+    if (visible == _visible) return;
+    _visible = visible;
+    if (onTab && !current) _covered = true;
+    if (!visible) return;
+    if (_covered) {
+      _covered = false;
+      setState(() => _entry++);
+    }
+    _runGauge();
+  }
+
+  void _runGauge() {
+    _gaugeDelay?.cancel();
+    _gaugeC.value = 0;
+    _gaugeDelay = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _gaugeC.forward(from: 0);
     });
+  }
+
+  Future<void> _load() async {
     try {
-      _fam = await FamilyContext.instance.refresh();
-      final now = DateTime.now();
-      final results = await Future.wait<Object?>([
-        PendingApi.instance
-            .fetchParticipation(year: now.year, month: now.month)
-            .then<Object?>((v) => v)
-            .catchError((_) => null),
-        AuthedCall.run(_api.fetchFamilyTemperature).then<Object?>((v) => v).catchError((_) => null),
-        AppPrefs.notificationsEnabled(),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _participation = results[0] as List<MemberParticipation>?;
-        _temp = results[1] as FamilyTemperatureResult?;
-        _notify = results[2]! as bool;
-        _loading = false;
-      });
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = _fam == null;
-        });
-      }
-    }
-  }
-
-  void _toast(String m, {IconData icon = LucideIcons.check}) => HaruToast.show(context, m, icon: icon);
-
-  void _toastError(String m) => HaruToast.show(
-        context,
-        m,
-        icon: LucideIcons.circleAlert,
-        iconColor: HaruColors.statusAttention,
-      );
-
-  Future<void> _copyCode() async {
-    final code = _fam?.code ?? '';
-    if (code.isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: code));
-    if (mounted) _toast('가족 코드가 복사되었어요', icon: LucideIcons.copy);
-  }
-
-  String get _myShort => MemberLook.shortFor(_fam?.myRole ?? '');
-  bool get _needBirth => _myShort == '아들' || _myShort == '딸';
-
-  Future<void> _saveRole(String role, int? birthOrder) async {
-    try {
-      await AuthedCall.run((t) => _api.updateMyRole(
-            accessToken: t,
-            role: _roleCodes[role]!,
-            birthOrder: birthOrder,
-          ));
-      await FamilyContext.instance.refresh();
-      if (mounted) _toast('설정을 저장했어요');
-    } catch (_) {
-      if (mounted) _toastError('역할을 바꾸지 못했어요');
-    }
-  }
-
-  Future<void> _pickRole() async {
-    final i = await showHaruPicker(
-      context,
-      title: '나는 우리 가족의?',
-      options: _roles,
-      selected: _roles.indexOf(_myShort),
-    );
-    if (i == null || !mounted) return;
-    final role = _roles[i];
-    if (role == '아들' || role == '딸') {
-      final keep = role == _myShort ? _fam?.myBirthOrder : null;
-      final order = keep ?? await _pickBirth(role);
-      if (order == null) return;
-      await _saveRole(role, order);
-    } else {
-      await _saveRole(role, null);
-    }
-  }
-
-  Future<int?> _pickBirth(String role) async {
-    final current = _fam?.myBirthOrder;
-    final i = await showHaruPicker(
-      context,
-      title: '몇째 $role인가요?',
-      options: [for (final o in _orders) '$o $role'],
-      selected: role == _myShort && current != null ? current - 1 : null,
-    );
-    return i == null ? null : i + 1;
-  }
-
-  Future<void> _changeBirth() async {
-    final order = await _pickBirth(_myShort);
-    if (order == null || !mounted) return;
-    await _saveRole(_myShort, order);
-  }
-
-  Future<void> _renameFamily() async {
-    final fam = _fam;
-    if (fam == null) return;
-    if (!fam.isCreator) {
-      _toast('가족 이름은 가족을 만든 사람만 바꿀 수 있어요', icon: LucideIcons.lock);
-      return;
-    }
-    final name = await showHaruInputDialog(
-      context,
-      title: '가족 이름 바꾸기',
-      initialValue: fam.name,
-      hint: '가족 이름',
-      confirmLabel: '저장',
-    );
-    if (name == null || !mounted) return;
-    try {
-      await AuthedCall.run((t) => _api.updateFamilyName(accessToken: t, name: name));
-      await FamilyContext.instance.refresh();
-      if (mounted) _toast('가족 이름을 바꿨어요');
-    } catch (_) {
-      if (mounted) _toastError('가족 이름을 바꾸지 못했어요');
-    }
-  }
-
-  Future<void> _toggleNotify(bool v) async {
-    setState(() => _notify = v);
-    try {
-      await AppPrefs.setNotificationsEnabled(v);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _notify = !v);
-      _toastError('알림 설정을 바꾸지 못했어요');
-    }
-  }
-
-  void _goLogin(String? toast) {
-    FamilyContext.instance.clear();
-    final nav = Navigator.of(context, rootNavigator: true);
-    nav.pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
-      (_) => false,
-    );
-    if (toast != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final ctx = nav.context;
-        if (ctx.mounted) HaruToast.show(ctx, toast);
-      });
-    }
-  }
-
-  Future<void> _logout() async {
-    final ok = await showHaruConfirm(
-      context,
-      title: '로그아웃할까요?',
-      body: '이 기기에서만 로그아웃돼요. 계정은 그대로 남아 있어요.',
-      confirmLabel: '로그아웃',
-    );
-    if (!ok || !mounted) return;
-    try {
-      await PushNotificationService.instance.unregisterCurrentDevice();
+      final fam = await FamilyContext.instance.refresh();
+      if (mounted) setState(() => _fam = fam);
     } catch (_) {}
-    await TokenStorage().clear();
-    if (mounted) _goLogin('로그아웃했어요');
+    final now = DateTime.now();
+    final hadTemp = _temp != null;
+    await Future.wait([
+      () async {
+        try {
+          _temp = await AuthedCall.run(_api.fetchFamilyTemperature);
+        } catch (_) {}
+      }(),
+      () async {
+        try {
+          final days = await PendingApi.instance.fetchAnswerStatus(year: now.year, month: now.month);
+          _status = {for (final d in days) dateOnly(d.date): d.answeredUserIds};
+        } catch (_) {}
+      }(),
+    ]);
+    if (!mounted) return;
+    setState(() {});
+    if (!hadTemp && _temp != null && _visible) _runGauge();
   }
 
-  Future<void> _deleteAccount() async {
-    final step1 = await showHaruConfirm(
-      context,
-      title: '계정을 삭제할까요?',
-      body: '삭제 후 30일 동안 데이터가 보관돼요.\n30일 안에 다시 로그인하면 복구할 수 있어요.',
-      confirmLabel: '계속',
-      danger: true,
-    );
-    if (!step1 || !mounted) return;
-    final step2 = await showHaruConfirm(
-      context,
-      title: '정말 삭제할까요?',
-      body: '30일이 지나면 내 답변과 일지가 모두 삭제돼요. 가족을 만든 사람이 탈퇴하면 30일 뒤 가족의 공동 데이터도 함께 삭제돼요.',
-      confirmLabel: '계정 삭제',
-      danger: true,
-    );
-    if (!step2 || !mounted) return;
-    try {
-      await AuthedCall.run(_api.deleteAccount);
-      await TokenStorage().clear();
-      if (mounted) _goLogin('계정 삭제를 예약했어요');
-    } catch (_) {
-      if (mounted) _toastError('계정을 삭제하지 못했어요');
-    }
-  }
+  // ── build ─────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: HaruColors.canvas,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          color: HaruColors.primary,
-          onRefresh: _load,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: kTabBarClearance),
-            children: [
-              SizedBox(
-                height: 56,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('가족', style: HaruType.screenTitle),
-                  ),
+    final fam = _fam;
+    return RefreshIndicator(
+      color: HaruColors.forest,
+      backgroundColor: HaruColors.ivory,
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, kNavClearance),
+        children: [
+          Entrance(
+            key: ValueKey(_entry),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Center(child: TabHeader(title: '우리 가족')),
+                    Positioned(
+                      right: -8,
+                      top: -2,
+                      child: _GearButton(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              if (_loading)
-                const HaruSkeleton()
-              else if (_error || _fam == null)
-                HaruErrorState(onRetry: _load)
-              else
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: _content(_fam!),
-                  ),
-                ),
-            ],
+                const SizedBox(height: 14),
+                if (fam != null) _familyCard(fam),
+                const SizedBox(height: 10),
+                Center(child: _gauge()),
+                const SizedBox(height: 12),
+                if (fam != null) _participation(fam),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  List<Widget> _content(FamilySnapshot fam) {
-    final t = _temp;
-    final d = t?.deltaFromYesterday ?? 0;
-    return [
-      _familyCard(fam),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(4, 28, 4, 12),
-        child: Text('이번 달 참여', style: HaruType.sectionTitle),
-      ),
-      _participationGrid(fam),
-      const SizedBox(height: 16),
-      Pressable(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const TemperatureScreen()),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(HaruRadius.xl),
-            boxShadow: HaruShadows.s1,
-          ),
-          child: Row(
+  Widget _familyCard(FamilySnapshot fam) {
+    final days = fam.daysTogether;
+    return HrCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: HaruColors.streakTile,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(LucideIcons.thermometerSun, size: 24, color: HaruColors.tempRiseText),
-              ),
-              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('가족 온도', style: haruText(13, weight: FontWeight.w600, color: HaruColors.inkSecondary)),
-                    const SizedBox(height: 2),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          t == null ? '–' : '${t.temperature.toStringAsFixed(1)}°C',
-                          style: haruText(22, weight: FontWeight.w700),
-                        ),
-                        const SizedBox(width: 8),
-                        if (t != null)
-                          Text(
-                            '${d >= 0 ? '+' : '−'}${d.abs().toStringAsFixed(1)}°',
-                            style: haruText(
-                              13,
-                              weight: FontWeight.w700,
-                              color: d >= 0 ? HaruColors.tempRiseText : HaruColors.tempDropText,
-                            ),
-                          ),
-                      ],
+                    Text('${fam.name} 가족', style: hrHand(30, height: 1.05)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '구성원 ${fam.members.length}명${days == null ? '' : ' · 함께한 지 $days일'}',
+                      style: hr(14.5, color: HaruColors.inkMuted),
                     ),
                   ],
                 ),
               ),
-              Text(t?.statusLabel ?? '', style: haruText(13, color: HaruColors.inkSecondary)),
-              const SizedBox(width: 14),
-              const Icon(LucideIcons.chevronRight, size: 18, color: HaruColors.inkSecondary),
-            ],
-          ),
-        ),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(4, 28, 4, 12),
-        child: Text('내 설정', style: HaruType.sectionTitle),
-      ),
-      _settingsCard(fam),
-      const SizedBox(height: 12),
-      _group([
-        _row(
-          leading: const Icon(LucideIcons.logOut, size: 18, color: HaruColors.inkSecondary),
-          label: '로그아웃',
-          onTap: _logout,
-        ),
-        _row(
-          leading: const Icon(LucideIcons.userX, size: 18, color: HaruColors.statusAttention),
-          label: '계정 삭제',
-          labelColor: HaruColors.statusAttention,
-          onTap: _deleteAccount,
-        ),
-      ]),
-      const SizedBox(height: 12),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Text(
-          '탈퇴 후 30일 동안 데이터가 보관되고, 그 안에 다시 로그인하면 복구돼요. 가족을 만든 사람이 탈퇴하면 30일 뒤 가족 공동 데이터도 삭제돼요.',
-          style: haruText(12, height: 1.5, color: HaruColors.inkSecondary),
-        ),
-      ),
-    ];
-  }
-
-  Widget _familyCard(FamilySnapshot fam) {
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(HaruRadius.xl),
-        boxShadow: HaruShadows.s1,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 52, child: ColoredBox(color: HaruColors.meadow)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // margin-top:-22px — the avatars overlap the meadow band and
-                // only the remaining 28px take up layout space.
-                SizedBox(
-                  height: 50 - 22,
-                  child: OverflowBox(
-                    alignment: Alignment.bottomLeft,
-                    minWidth: 0,
-                    maxHeight: 50,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: HaruAvatarStack(
-                        overlap: 8,
-                        itemSize: 50, // 44 + 3px ring each side
-                        children: [
-                          for (final m in fam.members)
-                            HaruAvatar(
-                              initial: m.initial,
-                              tint: m.tint,
-                              size: 44,
-                              ringColor: Colors.white,
-                              ringWidth: 3,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
+              // Every avatar (the first too) has margin-left -6.
+              SizedBox(
+                width: fam.members.length * 26.0,
+                height: 32,
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    Flexible(
-                      child: Text(
-                        fam.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: haruText(22, weight: FontWeight.w700, letterSpacing: -0.4),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(fam.countText, style: haruText(14, color: HaruColors.inkSecondary)),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: HaruColors.canvas,
-                    borderRadius: BorderRadius.circular(HaruRadius.lg),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('가족 코드', style: haruText(12, weight: FontWeight.w600, color: HaruColors.inkSecondary)),
-                            Text(fam.code, style: haruText(20, weight: FontWeight.w700, letterSpacing: 3)),
-                          ],
+                    for (var i = 0; i < fam.members.length; i++)
+                      Positioned(
+                        left: i * 26.0 - 6,
+                        child: MemberAvatar(
+                          member: fam.members[i],
+                          size: 32,
+                          fontSize: 14.5,
+                          hand: true,
+                          ring: HaruColors.ivory,
                         ),
                       ),
-                      HaruButton(
-                        label: '복사',
-                        icon: LucideIcons.copy,
-                        variant: HaruButtonVariant.utility,
-                        onPressed: _copyCode,
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(color: HaruColors.mint, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('가족 코드', style: hr(13.5, color: HaruColors.inkMuted)),
+                      Transform.translate(
+                        offset: const Offset(-4, 0),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.ease,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: _codeLit ? const Color(0x597FA87A) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(fam.code, style: hrHand(22, letterSpacing: 1)),
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
-                for (final m in fam.members)
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: const BoxDecoration(
-                      border: Border(top: BorderSide(color: HaruColors.hairline)),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(m.label, style: haruText(15, weight: FontWeight.w500))),
-                        if (m.isCreator) ...[
-                          const HaruBadge('만든 사람', tone: HaruBadgeTone.neutral),
-                          const SizedBox(width: 10),
-                        ],
-                        if (m.isMe) const HaruBadge('나'),
-                      ],
-                    ),
-                  ),
+                const SizedBox(width: 10),
+                CopyCodeButton(
+                  code: fam.code,
+                  pill: true,
+                  height: 34,
+                  radius: HaruRadius.full,
+                  fontSize: 14,
+                  iconSize: 16,
+                  onCopied: (on) => setState(() => _codeLit = on),
+                ),
               ],
             ),
           ),
@@ -510,190 +271,146 @@ class _FamilyTabScreenState extends State<FamilyTabScreen> {
     );
   }
 
-  Widget _participationGrid(FamilySnapshot fam) {
-    final rates = {for (final p in _participation ?? const <MemberParticipation>[]) p.userId: p.answerRate};
-    return LayoutBuilder(builder: (_, c) {
-      final w = (c.maxWidth - 12) / 2;
-      return Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: [
-          for (var i = 0; i < fam.members.length; i++)
-            SizedBox(
-              width: w,
-              child: HaruRise(
-                delay: Duration(milliseconds: 80 + i * 70),
-                duration: const Duration(milliseconds: 450),
-                child: _gaugeCard(fam.members[i], rates[fam.members[i].userId]),
-              ),
-            ),
-        ],
-      );
-    });
+  Widget _gauge() {
+    final t = _temp;
+    return AnimatedBuilder(
+      animation: _gaugeC,
+      builder: (_, _) {
+        final target = t?.temperature ?? 36.5;
+        final e = Curves.easeOutCubic.transform(_gaugeC.value);
+        final shown = ((20 + (target - 20) * e) * 10).round() / 10;
+        return TemperatureGauge(
+          temperature: t == null ? 36.5 : shown,
+          statusLabel: t?.statusLabel.isNotEmpty == true ? t!.statusLabel : '따뜻해요',
+          bubbleText: t?.bubbleText.isNotEmpty == true ? t!.bubbleText : '가족이 따뜻한 하루를 나눴어요!',
+          delta: t?.deltaFromYesterday ?? 0,
+          accent: parseHex(t?.colorHex) ?? HaruColors.warmIcon,
+          width: 362,
+          height: 380,
+        );
+      },
+    );
   }
 
-  Widget _gaugeCard(MemberLook m, int? pct) {
-    final p = pct ?? 0;
-    final low = pct != null && p < 70;
-    final (String status, IconData icon) = switch (p) {
-      _ when pct == null => ('준비 중', LucideIcons.minus),
-      100 => ('빠짐없이 답해요', LucideIcons.star),
-      >= 90 => ('꾸준해요', LucideIcons.check),
-      >= 70 => ('잘 이어가요', LucideIcons.check),
-      _ => ('조금 더 힘내요', LucideIcons.triangleAlert),
-    };
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(HaruRadius.xl),
-        boxShadow: HaruShadows.s1,
-      ),
+  Widget _participation(FamilySnapshot fam) {
+    final today = dateOnly(DateTime.now());
+    final status = _status;
+    return HrCard(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              HaruAvatar(initial: m.initial, tint: m.tint, size: 28),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  m.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: haruText(14, weight: FontWeight.w600),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          HalfGauge(
-            percent: p.toDouble(),
-            color: low ? HaruColors.warn : HaruColors.house,
-            label: pct == null ? '–' : '$p%',
-            width: 96,
-          ),
-          const SizedBox(height: 10),
-          Container(
-            height: 24,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: low ? HaruColors.warnPill : HaruColors.meadow,
-              borderRadius: BorderRadius.circular(HaruRadius.full),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 12, color: low ? HaruColors.warnText : HaruColors.positivePillText),
-                const SizedBox(width: 4),
-                Text(
-                  status,
-                  style: haruText(
-                    12,
-                    weight: FontWeight.w600,
-                    color: low ? HaruColors.warnText : HaruColors.positivePillText,
-                    height: 1.2,
+          const SproutHeading('이번 달 참여'),
+          const SizedBox(height: 12),
+          for (var i = 0; i < fam.members.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            () {
+              final m = fam.members[i];
+              final n = status == null
+                  ? 0
+                  : status.entries
+                      .where((e) => !e.key.isAfter(today) && e.value.contains(m.userId))
+                      .length;
+              final total = today.day;
+              return Row(
+                children: [
+                  SizedBox(
+                    width: 72,
+                    child: Text(m.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: hrHand(15, color: HaruColors.ink)),
                   ),
-                ),
-              ],
-            ),
-          ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(HaruRadius.full),
+                      child: Container(
+                        height: 10,
+                        color: HaruColors.gaugeTrack,
+                        alignment: Alignment.centerLeft,
+                        child: status == null
+                            ? null
+                            : FractionallySizedBox(
+                                widthFactor: (n / total).clamp(0.0, 1.0),
+                                child: Entrance(
+                                  key: ValueKey('p${m.userId}$n'),
+                                  kind: EntranceKind.grow,
+                                  delay: stagger(i, 90, 300),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: tempColor(20 + n * 4.2),
+                                      borderRadius: BorderRadius.circular(HaruRadius.full),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 46,
+                    child: Text(
+                      status == null ? '–' : '$n/$total일',
+                      textAlign: TextAlign.right,
+                      style: hr(14.5, color: HaruColors.inkMuted),
+                    ),
+                  ),
+                ],
+              );
+            }(),
+          ],
         ],
       ),
     );
   }
+}
 
-  Widget _settingsCard(FamilySnapshot fam) {
-    final value = haruText(15, color: HaruColors.inkSecondary);
-    final chevron = const Icon(LucideIcons.chevronRight, size: 16, color: HaruColors.inkSecondary);
-    final order = fam.myBirthOrder;
-    return _group([
-      _row(label: '나의 역할', trailing: [Text(_myShort, style: value), const SizedBox(width: 12), chevron], onTap: _pickRole),
-      if (_needBirth)
-        _row(
-          label: '출생 순서',
-          trailing: [
-            Text(order == null ? '선택' : '${_orders[order - 1]} $_myShort', style: value),
-            const SizedBox(width: 12),
-            chevron,
-          ],
-          onTap: _changeBirth,
-        ),
-      _row(
-        label: '가족 이름',
-        trailing: [
-          Flexible(child: Text(fam.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: value)),
-          const SizedBox(width: 12),
-          Icon(
-            fam.isCreator ? LucideIcons.chevronRight : LucideIcons.lock,
-            size: 16,
-            color: HaruColors.inkSecondary,
-          ),
-        ],
-        onTap: _renameFamily,
-      ),
-      _row(
-        label: '질문 도착 알림',
-        sub: _notify ? '매일 새 질문이 도착하면 알려 드려요' : '알림이 꺼져 있어요',
-        trailing: [HaruSwitch(value: _notify, onChanged: _toggleNotify)],
-      ),
-    ]);
-  }
+/// ⚙ 44×44: `style-active` rotate(60deg) scale(.92), 300ms (.2,1.4,.4,1).
+class _GearButton extends StatefulWidget {
+  const _GearButton({required this.onTap});
 
-  Widget _group(List<Widget> rows) => Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(HaruRadius.xl),
-          boxShadow: HaruShadows.s1,
-        ),
-        child: Column(
-          children: [
-            for (var i = 0; i < rows.length; i++)
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(color: i == 0 ? Colors.transparent : HaruColors.hairline),
-                  ),
-                ),
-                child: rows[i],
-              ),
-          ],
-        ),
-      );
+  final VoidCallback onTap;
 
-  Widget _row({
-    required String label,
-    String? sub,
-    Widget? leading,
-    List<Widget> trailing = const [],
-    Color labelColor = HaruColors.ink,
-    VoidCallback? onTap,
-  }) {
-    final child = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 52),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            if (leading != null) ...[leading, const SizedBox(width: 12)],
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: sub == null ? 0 : 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: haruText(15, color: labelColor)),
-                    if (sub != null) Text(sub, style: haruText(12, color: HaruColors.inkSecondary)),
-                  ],
+  @override
+  State<_GearButton> createState() => _GearButtonState();
+}
+
+class _GearButtonState extends State<_GearButton> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '설정',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: widget.onTap,
+        // Plus the frame's `cursor: pointer` `:active` (scale .95,
+        // brightness .96), instant since the element has a transition.
+        child: Transform.scale(
+          scale: _down ? .95 : 1,
+          child: ColorFiltered(
+            colorFilter: brightnessFilter(_down ? .96 : 1),
+            child: AnimatedRotation(
+              turns: _down ? 60 / 360 : 0,
+              duration: const Duration(milliseconds: 300),
+              curve: HaruMotion.pop,
+              child: AnimatedScale(
+                scale: _down ? .92 : 1,
+                duration: const Duration(milliseconds: 300),
+                curve: HaruMotion.pop,
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Icon(Symbols.settings_rounded, size: 26, color: HaruColors.forest),
                 ),
               ),
             ),
-            ...trailing,
-          ],
+          ),
         ),
       ),
     );
-    if (onTap == null) return child;
-    return GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: child);
   }
 }

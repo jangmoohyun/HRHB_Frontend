@@ -1,25 +1,31 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../theme/tokens.dart';
 
 /// Diary weather. The server stores the legacy emoji values, so this maps
-/// between the wire format and the VER2 icon tiles
-/// (맑음 butter · 구름 조금 orange · 흐림 teal · 비 sky · 천둥번개 purple).
+/// between the wire format and the prototype's `WX` table.
 enum HaruWeather {
-  sun('☀️', '맑음', LucideIcons.sun, HaruColors.accentButter),
-  partly('⛅', '구름 조금', LucideIcons.cloudSun, HaruColors.accentOrange),
-  cloud('☁️', '흐림', LucideIcons.cloud, HaruColors.accentTeal),
-  rain('🌧️', '비', LucideIcons.cloudRain, HaruColors.accentSky),
-  storm('⛈️', '천둥번개', LucideIcons.cloudLightning, HaruColors.accentPurple);
+  sun('☀️', '맑음', Symbols.sunny_rounded, Color(0xFFF09A4A), HaruColors.yellow),
+  partly('⛅', '구름 조금', Symbols.partly_cloudy_day_rounded, Color(0xFFE8A05A),
+      HaruColors.orange),
+  cloud('☁️', '흐림', Symbols.cloud_rounded, Color(0xFF5F5F5F), HaruColors.sand),
+  rain('🌧️', '비', Symbols.rainy_rounded, Color(0xFF6A9BC8), HaruColors.lavender),
+  storm('⛈️', '천둥 번개', Symbols.thunderstorm_rounded, Color(0xFF5B8FD9),
+      HaruColors.lavender);
 
-  const HaruWeather(this.wire, this.label, this.icon, this.tint);
+  const HaruWeather(this.wire, this.label, this.icon, this.color, this.bg);
 
   /// Value sent to / received from `/api/families/me/diary/*`.
   final String wire;
   final String label;
   final IconData icon;
-  final Color tint;
+
+  /// Icon color.
+  final Color color;
+
+  /// Tile background.
+  final Color bg;
 
   static HaruWeather? fromWire(String? value) {
     if (value == null || value.isEmpty) return null;
@@ -34,75 +40,29 @@ enum HaruWeather {
     return null;
   }
 
-  /// Most frequent weather — the prototype's `modeW` for the family composite.
-  static HaruWeather? mode(Iterable<HaruWeather?> list) {
-    final counts = <HaruWeather, int>{};
-    for (final w in list) {
-      if (w != null) counts[w] = (counts[w] ?? 0) + 1;
-    }
-    HaruWeather? best;
-    for (final e in counts.entries) {
-      if (best == null || e.value > counts[best]!) best = e.key;
-    }
-    return best;
+  /// The prototype's `composite(w)`: average the members' weather on a
+  /// sunny = 5 … storm = 1 scale and round back to a weather.
+  static HaruWeather? composite(Iterable<HaruWeather?> list) {
+    final scores = [
+      for (final w in list)
+        if (w != null) 5 - w.index,
+    ];
+    if (scores.isEmpty) return null;
+    final avg = (scores.reduce((a, b) => a + b) / scores.length).round();
+    return values[5 - avg];
   }
 }
 
-/// Rounded weather tile. A null [weather] draws the empty "–" tile.
-class WeatherTile extends StatelessWidget {
-  const WeatherTile({
-    super.key,
-    required this.weather,
-    this.size = 46,
-    this.radius = 14,
-    this.iconSize = 20,
-    this.emptyIcon = LucideIcons.minus,
-    this.emptyColor = HaruColors.surface,
-    this.emptyBorder = HaruColors.hairline,
-    this.emptyIconColor = HaruColors.dsInkFaint,
-    this.iconColor = HaruColors.dsInkSecondary,
-  });
-
-  final HaruWeather? weather;
-  final double size;
-  final double radius;
-  final double iconSize;
-  final IconData emptyIcon;
-  final Color emptyColor;
-  final Color emptyBorder;
-  final Color emptyIconColor;
-  final Color iconColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final w = weather;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: w?.tint ?? emptyColor,
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: w == null ? emptyBorder : Colors.transparent),
-      ),
-      child: Icon(
-        w?.icon ?? emptyIcon,
-        size: iconSize,
-        color: w == null ? emptyIconColor : iconColor,
-      ),
-    );
-  }
-}
-
-/// How a family member is drawn in VER2.
+/// How a family member is drawn.
 ///
-/// Prototype: 아빠 sky · 엄마 pink · 아들 green · 딸 butter, avatar initials
-/// 빠 / 엄 / 나 (me) / 딸. Siblings with the same role get the next tint.
+/// Prototype `MEMBERS`: 아빠 mint · 엄마 orange · 딸 lavender · 아들 yellow,
+/// avatars show the role word, and "나" for me. A second member with the same
+/// role gets the next free tint.
 class MemberLook {
   const MemberLook({
     required this.userId,
     required this.label,
-    required this.short,
-    required this.initial,
+    required this.role,
     required this.tint,
     required this.isMe,
     this.isCreator = false,
@@ -110,43 +70,35 @@ class MemberLook {
 
   final int userId;
 
-  /// Full label, e.g. "첫째 아들".
+  /// Full label, e.g. "첫째 딸".
   final String label;
 
-  /// Role word, e.g. "아들".
-  final String short;
-
-  /// Single avatar character.
-  final String initial;
+  /// Role word, e.g. "딸".
+  final String role;
   final Color tint;
   final bool isMe;
   final bool isCreator;
 
-  static String shortFor(String role) => switch (role.toUpperCase()) {
+  /// Avatar text: "나" for me, otherwise the role word.
+  String get short => isMe ? '나' : role;
+
+  /// Name in answer/diary lists: "아들 (나)" for me.
+  String get displayName => isMe ? '$label (나)' : label;
+
+  static String roleFor(String raw) => switch (raw.toUpperCase()) {
         'FATHER' || '아빠' => '아빠',
         'MOTHER' || '엄마' => '엄마',
         'SON' || '아들' => '아들',
         'DAUGHTER' || '딸' => '딸',
-        _ => role,
+        _ => raw,
       };
 
-  static String initialFor(String short, bool isMe) {
-    if (isMe) return '나';
-    return switch (short) {
-      '아빠' => '빠',
-      '엄마' => '엄',
-      '아들' => '아',
-      '딸' => '딸',
-      _ => short.characters.isEmpty ? '?' : short.characters.first,
-    };
-  }
-
-  static Color baseTint(String short) => switch (short) {
-        '아빠' => HaruColors.accentSky,
-        '엄마' => HaruColors.accentPink,
-        '아들' => HaruColors.accentGreen,
-        '딸' => HaruColors.accentButter,
-        _ => HaruColors.accentTeal,
+  static Color baseTint(String role) => switch (role) {
+        '아빠' => HaruColors.mint,
+        '엄마' => HaruColors.orange,
+        '딸' => HaruColors.lavender,
+        '아들' => HaruColors.yellow,
+        _ => HaruColors.panelGreen,
       };
 
   /// Builds looks for a whole family so duplicate roles get distinct tints.
@@ -157,20 +109,19 @@ class MemberLook {
     final used = <Color>{};
     final out = <MemberLook>[];
     for (final m in members) {
-      final short = shortFor(m.role);
-      var tint = baseTint(short);
+      final role = roleFor(m.role);
+      var tint = baseTint(role);
       if (used.contains(tint)) {
         tint = HaruColors.tints.firstWhere(
           (t) => !used.contains(t),
-          orElse: () => HaruColors.accentTeal,
+          orElse: () => HaruColors.sand,
         );
       }
       used.add(tint);
       out.add(MemberLook(
         userId: m.userId,
         label: m.label,
-        short: short,
-        initial: initialFor(short, m.isMe),
+        role: role,
         tint: tint,
         isMe: m.isMe,
         isCreator: m.isCreator,

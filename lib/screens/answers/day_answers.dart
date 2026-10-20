@@ -12,7 +12,7 @@ class AnswerView {
   String get timeLabel => raw.createdAt == null ? '' : answerTime(raw.createdAt!);
 }
 
-/// Everyone's answers for one question, arranged the way VER2 shows them.
+/// Everyone's answers for one question.
 class DayAnswers {
   const DayAnswers({
     required this.answers,
@@ -56,9 +56,8 @@ class DayAnswers {
           MemberLook(
             userId: a.userId,
             label: a.roleLabel,
-            short: MemberLook.shortFor(a.role),
-            initial: MemberLook.initialFor(MemberLook.shortFor(a.role), a.isMe),
-            tint: MemberLook.baseTint(MemberLook.shortFor(a.role)),
+            role: MemberLook.roleFor(a.role),
+            tint: MemberLook.baseTint(MemberLook.roleFor(a.role)),
             isMe: a.isMe,
           );
       views.add(AnswerView(member: look, raw: a));

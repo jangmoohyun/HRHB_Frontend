@@ -14,8 +14,8 @@ import 'pending_models.dart';
 const bool kPendingUseDummy =
     bool.fromEnvironment('HARU_PENDING_DUMMY', defaultValue: true);
 
-/// VER2 features without a backend yet. Every method maps to one endpoint in
-/// BACKEND_API_TODO.md (P1–P7).
+/// Features without a backend yet. Every method maps to one endpoint in
+/// BACKEND_API_TODO.md (P1–P14).
 abstract class PendingApi {
   static final PendingApi instance =
       kPendingUseDummy ? DummyPendingApi() : HttpPendingApi();
@@ -50,4 +50,37 @@ abstract class PendingApi {
   /// P7 `POST /api/auth/apple` — also needs the Sign in with Apple capability
   /// and `sign_in_with_apple` on the client (see the TODO doc).
   Future<AuthResult> loginWithApple({bool restoreDeletedAccount = false});
+
+  /// P8 `POST /api/auth/google` — also needs `google_sign_in` and the OAuth
+  /// client IDs on the client (see the TODO doc).
+  Future<AuthResult> loginWithGoogle({bool restoreDeletedAccount = false});
+
+  /// P9 `DELETE /api/families/me/members/me`
+  Future<void> leaveFamily();
+
+  /// P10 `DELETE /api/families/me/members/{userId}` — family creator only.
+  Future<void> removeMember(int userId);
+
+  /// P11 `POST /api/families/me/daily-questions/{dailyQuestionId}/pokes`
+  Future<void> pokeMember({required int dailyQuestionId, required int userId});
+
+  /// P12 `POST /api/inquiries`
+  Future<void> sendInquiry({
+    required InquiryCategory category,
+    required String content,
+  });
+
+  /// P13 `GET /api/me/notification-settings`
+  Future<NotificationSettings> fetchNotificationSettings();
+
+  /// P13 `PUT /api/me/notification-settings`
+  Future<NotificationSettings> updateNotificationSettings(
+    NotificationSettings settings,
+  );
+
+  /// P14 `DELETE /api/me/notifications/{id}`
+  Future<void> deleteNotification(int id);
+
+  /// P14 `DELETE /api/me/notifications`
+  Future<void> clearNotifications();
 }

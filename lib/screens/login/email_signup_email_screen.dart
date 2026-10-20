@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:hrhb_frontend/services/email_auth_service.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_basics.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
+import 'package:hrhb_frontend/theme/text.dart';
+import 'package:hrhb_frontend/theme/tokens.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_controls.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
 
 import 'auth_scaffold.dart';
+import 'email_login_screen.dart';
 import 'email_signup_code_screen.dart';
 import 'login_screen.dart';
 
-/// 05 가입 ① 이메일.
+/// 가입 1 · 이메일.
 class EmailSignupEmailScreen extends StatefulWidget {
   const EmailSignupEmailScreen({super.key});
 
@@ -24,20 +25,18 @@ class _EmailSignupEmailScreenState extends State<EmailSignupEmailScreen> {
   bool _loading = false;
   String? _error;
 
-  static final _emailRe = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-
   @override
   void dispose() {
     _email.dispose();
     super.dispose();
   }
 
+  String get _text => _email.text.trim();
+  bool get _emailBad => _text.length > 3 && !isValidEmail(_text);
+
   Future<void> _send() async {
-    final email = _email.text.trim();
-    if (!_emailRe.hasMatch(email)) {
-      setState(() => _error = '이메일 형식을 확인해 주세요.');
-      return;
-    }
+    final email = _text;
+    if (!isValidEmail(email) || _loading) return;
     FocusScope.of(context).unfocus();
     setState(() {
       _loading = true;
@@ -48,24 +47,25 @@ class _EmailSignupEmailScreenState extends State<EmailSignupEmailScreen> {
       if (!mounted) return;
       switch (status.status) {
         case 'REGISTERED':
-          setState(() => _error = '이미 가입된 이메일이에요. 로그인해 주세요.');
+          setState(() => _error = '이미 가입된 이메일이에요. 로그인해주세요.');
           return;
         case 'RECOVERABLE':
           final ok = await showHaruConfirm(
             context,
             title: '삭제 예정인 계정이에요',
-            body: '탈퇴 신청 후 30일이 지나지 않았어요.\n계정을 복구하고 로그인할까요?',
-            confirmLabel: '복구하기',
+            body: '탈퇴 신청 후 30일이 지나지 않았어요. 계정을 복구하고 로그인할까요?',
+            okLabel: '복구하기',
+            danger: false,
           );
           if (!ok || !mounted) return;
           await _auth.restoreAccount(email);
           if (!mounted) return;
           final nav = Navigator.of(context, rootNavigator: true);
           nav.pushAndRemoveUntil(
-            MaterialPageRoute<void>(builder: (_) => LoginScreen(prefillEmail: email)),
+            flowRoute<void>(LoginScreen(prefillEmail: email)),
             (_) => false,
           );
-          HaruToast.show(nav.context, '계정을 복구했어요. 로그인해 주세요');
+          HaruToast.show(nav.context, '계정을 복구했어요. 로그인해주세요.');
           return;
         case 'AVAILABLE':
           break;
@@ -78,18 +78,19 @@ class _EmailSignupEmailScreenState extends State<EmailSignupEmailScreen> {
       final debug = r.debugCode;
       HaruToast.show(
         context,
-        debug != null && debug.isNotEmpty ? '인증번호: $debug' : '인증번호를 이메일로 보냈어요',
-        icon: LucideIcons.mail,
+        debug != null && debug.isNotEmpty ? '인증 코드: $debug' : '인증 코드를 보냈어요.',
       );
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => EmailSignupCodeScreen(email: r.email)),
+        flowRoute<void>(EmailSignupCodeScreen(email: r.email, expiresInSeconds: r.expiresInSeconds)),
       );
+      // Back from the code step is the prototype's goSignup: a fresh email step.
+      if (mounted) setState(_email.clear);
     } catch (e) {
       if (!mounted) return;
       final t = e.toString();
       setState(() => _error = t.contains('EMAIL_ALREADY_REGISTERED') || t.contains('already registered')
-          ? '이미 가입된 이메일이에요. 로그인해 주세요.'
-          : '요청하지 못했어요. 잠시 후 다시 시도해 주세요.');
+          ? '이미 가입된 이메일이에요. 로그인해주세요.'
+          : '요청하지 못했어요. 잠시 후 다시 시도해주세요.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -97,29 +98,36 @@ class _EmailSignupEmailScreenState extends State<EmailSignupEmailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AuthPage(
-      children: [
-        const AuthStepIndicator(step: 1),
-        const AuthTitle(title: '가입할 이메일을\n알려 주세요', description: '인증번호를 보내 드릴게요.'),
-        Gap(children: [
+    return FlowScaffold(
+      back: FlowBackRow(onBack: () => Navigator.of(context).maybePop(), step: 0),
+      builder: (context, minHeight, shift) => FlowForm(
+        minHeight: minHeight,
+        shift: shift,
+        children: [
+          const SizedBox(height: 8),
+          Text('이메일을\n알려주세요', style: HaruType.headline),
+          const SizedBox(height: 8),
+          Text('가입 확인용 코드를 보내드릴게요', style: hr(15, color: HaruColors.inkMuted)),
+          const SizedBox(height: 28),
           HaruTextField(
-            label: '이메일',
             controller: _email,
-            hint: 'email@example.com',
+            placeholder: 'haru@family.com',
             keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.email],
             onChanged: (_) => setState(() => _error = null),
             onSubmitted: (_) => _send(),
           ),
-          if (_error != null) HaruFieldError(_error!, icon: LucideIcons.circleAlert),
-          HaruButton(
-            label: '인증번호 받기',
-            size: HaruButtonSize.lg,
-            fullWidth: true,
+          if (_emailBad) const FieldError('이메일 형식을 확인해주세요.'),
+          if (_error != null) FieldError(_error!),
+          const SizedBox(height: 28),
+          PrimaryButton(
+            label: '인증 코드 받기',
             loading: _loading,
-            onPressed: _email.text.trim().isEmpty ? null : _send,
+            onPressed: isValidEmail(_text) ? _send : null,
           ),
-        ]),
-      ],
+        ],
+      ),
     );
   }
 }

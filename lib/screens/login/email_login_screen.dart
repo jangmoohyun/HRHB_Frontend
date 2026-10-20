@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/email_auth_service.dart';
 import 'package:hrhb_frontend/services/session_bootstrap.dart';
 import 'package:hrhb_frontend/theme/text.dart';
 import 'package:hrhb_frontend/theme/tokens.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_basics.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_controls.dart';
 import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
+import 'package:hrhb_frontend/widgets/haru/pressable.dart';
 
 import 'auth_scaffold.dart';
 import 'email_signup_email_screen.dart';
 
-/// 04 이메일 로그인.
+final _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+
+bool isValidEmail(String v) => _emailPattern.hasMatch(v);
+
+/// 이메일 로그인.
 class EmailLoginScreen extends StatefulWidget {
   const EmailLoginScreen({super.key, this.prefillEmail});
 
@@ -38,13 +41,13 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
     super.dispose();
   }
 
+  String get _emailText => _email.text.trim();
+  bool get _emailBad => _emailText.length > 3 && !isValidEmail(_emailText);
+  bool get _canSubmit => isValidEmail(_emailText) && _pw.text.isNotEmpty;
+
   Future<void> _submit() async {
-    final email = _email.text.trim();
-    final pw = _pw.text;
-    if (email.isEmpty || pw.isEmpty) {
-      setState(() => _error = '이메일과 비밀번호를 모두 입력해 주세요.');
-      return;
-    }
+    if (!_canSubmit || _loading) return;
+    final email = _emailText, pw = _pw.text;
     FocusScope.of(context).unfocus();
     setState(() {
       _loading = true;
@@ -55,19 +58,19 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
       if (!mounted) return;
       if (r.familyId != null) await _session.syncFamilyProfile(isFamilyCreator: r.isFamilyCreator);
       if (!mounted) return;
-      if (r.restored) HaruToast.show(context, '계정을 복구했어요');
+      HaruToast.show(context, r.restored ? '계정을 복구했어요.' : '다시 만나서 반가워요!');
       goAfterLogin(context, hasFamily: r.familyId != null);
     } on ApiException catch (e) {
       if (!mounted) return;
       if (e.code == 'ACCOUNT_SCHEDULED_FOR_DELETION' || e.message.contains('scheduled for deletion')) {
         await _offerRestore(email, pw);
       } else if (e.statusCode == 401 || e.message.contains('(401)')) {
-        setState(() => _error = '이메일 또는 비밀번호가 맞지 않아요.');
+        setState(() => _error = '이메일 또는 비밀번호가 맞지 않아요. 다시 확인해주세요.');
       } else {
-        setState(() => _error = '로그인하지 못했어요. 잠시 후 다시 시도해 주세요.');
+        setState(() => _error = '로그인하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } catch (_) {
-      if (mounted) setState(() => _error = '로그인하지 못했어요. 네트워크를 확인해 주세요.');
+      if (mounted) setState(() => _error = '로그인하지 못했어요. 네트워크를 확인해주세요.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -77,8 +80,9 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
     final ok = await showHaruConfirm(
       context,
       title: '삭제 예정인 계정이에요',
-      body: '탈퇴 신청 후 30일이 지나지 않았어요.\n계정을 복구하고 로그인할까요?',
-      confirmLabel: '복구하기',
+      body: '탈퇴 신청 후 30일이 지나지 않았어요. 계정을 복구하고 로그인할까요?',
+      okLabel: '복구하기',
+      danger: false,
     );
     if (!ok || !mounted) return;
     try {
@@ -87,7 +91,7 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
       if (!mounted) return;
       if (r.familyId != null) await _session.syncFamilyProfile(isFamilyCreator: r.isFamilyCreator);
       if (!mounted) return;
-      HaruToast.show(context, '계정을 복구했어요');
+      HaruToast.show(context, '계정을 복구했어요.');
       goAfterLogin(context, hasFamily: r.familyId != null);
     } catch (_) {
       if (mounted) setState(() => _error = '계정을 복구하지 못했어요.');
@@ -96,53 +100,94 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AuthPage(
-      children: [
-        const AuthTitle(title: '이메일로 로그인', description: '가입한 이메일과 비밀번호를 입력해 주세요.'),
-        Gap(children: [
+    return FlowScaffold(
+      back: FlowBackRow(onBack: () => Navigator.of(context).maybePop()),
+      builder: (context, minHeight, shift) => FlowForm(
+        minHeight: minHeight,
+        shift: shift,
+        children: [
+          const SizedBox(height: 8),
+          Text('이메일로\n로그인해요', style: HaruType.headline),
+          const SizedBox(height: 8),
+          Text('가입한 이메일과 비밀번호를 입력해주세요', style: hr(15, color: HaruColors.inkMuted)),
+          const SizedBox(height: 28),
+          FieldLabel('이메일'),
           HaruTextField(
-            label: '이메일',
             controller: _email,
-            hint: 'email@example.com',
+            placeholder: 'haru@family.com',
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
+            autofillHints: const [AutofillHints.email],
             onChanged: (_) => setState(() => _error = null),
           ),
+          if (_emailBad) const FieldError('이메일 형식을 확인해주세요.'),
+          const SizedBox(height: 18),
+          FieldLabel('비밀번호'),
           HaruTextField(
-            label: '비밀번호',
             controller: _pw,
-            hint: '비밀번호',
+            placeholder: '비밀번호',
             obscure: true,
             textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.password],
             onSubmitted: (_) => _submit(),
             onChanged: (_) => setState(() => _error = null),
           ),
-          if (_error != null) HaruFieldError(_error!, icon: LucideIcons.circleAlert),
-          HaruButton(
+          if (_error != null) FieldError(_error!),
+          const SizedBox(height: 28),
+          PrimaryButton(
             label: '로그인',
-            size: HaruButtonSize.lg,
-            fullWidth: true,
             loading: _loading,
-            onPressed: _submit,
+            onPressed: _canSubmit ? _submit : null,
           ),
+          const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('처음이신가요?', style: haruText(14, color: HaruColors.dsInkMuted)),
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const EmailSignupEmailScreen()),
+              Pressable(
+                onTap: () => HaruToast.show(context, '비밀번호 재설정은 준비 중이에요.'),
+                child: Text('비밀번호를 잊으셨나요?', style: hr(14, color: HaruColors.inkMuted)),
+              ),
+              const SizedBox(width: 16),
+              Pressable(
+                onTap: () => Navigator.of(context).pushReplacement(
+                  flowRoute<void>(const EmailSignupEmailScreen()),
                 ),
-                child: Text(
-                  '이메일로 회원가입',
-                  style: haruText(14, weight: FontWeight.w500, color: HaruColors.primary),
-                ),
+                child: Text('회원가입', style: hr(14, color: HaruColors.forest)),
               ),
             ],
           ),
-        ]),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Form label (15, forest) with the prototype's `margin: … 2px 8px`.
+class FieldLabel extends StatelessWidget {
+  const FieldLabel(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
+      child: Text(text, style: HaruType.fieldLabel),
+    );
+  }
+}
+
+/// Inline error under a field (14.5, danger, margin 6 2 0).
+class FieldError extends StatelessWidget {
+  const FieldError(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 6, 2, 0),
+      child: Text(text, style: HaruType.error),
     );
   }
 }

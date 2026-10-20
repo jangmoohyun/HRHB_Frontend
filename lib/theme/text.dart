@@ -4,25 +4,30 @@ import 'tokens.dart';
 
 /// Font families registered in pubspec.yaml.
 abstract final class HaruFonts {
-  static const sans = 'Pretendard';
-  static const serif = 'GowunBatang'; // question body
-  static const hand = 'Gaegu'; // answerer name
-  static const logo = 'Cafe24Oneprettynight'; // wordmark only
+  /// `--font-brand` — every UI string (Gaegu 400/700).
+  static const brand = 'Gaegu';
+
+  /// `--font-hand` — dates, names, numbers (나눔손글씨 다시시작해).
+  static const hand = 'FamilyNameDate';
+
+  /// `--font-question` — question text (나눔펜체).
+  static const question = 'Question';
 }
 
-/// Text style factory mirroring the prototype's CSS.
+/// Text style mirroring the prototype's CSS.
 ///
-/// The prototype sets `letter-spacing: -0.01em` on the whole phone frame and
-/// inherits `line-height: 1.5` from the design system body, so those are the
-/// defaults here. [TextLeadingDistribution.even] splits extra leading above and
-/// below the glyphs the way CSS does.
-TextStyle haruText(
+/// The phone frame sets `font-weight: 700` on everything, so that is the
+/// default. Gaegu ships 400 and 700; the handwriting fonts ship a single
+/// weight and are emboldened the same way the browser does. [height] null means CSS
+/// `line-height: normal`. When a height is given, [TextLeadingDistribution.even]
+/// splits the extra leading above and below the glyphs the way CSS does.
+TextStyle hr(
   double size, {
-  FontWeight weight = FontWeight.w400,
+  FontWeight weight = FontWeight.w700,
   Color color = HaruColors.ink,
-  double height = 1.5,
-  double? letterSpacing,
-  String family = HaruFonts.sans,
+  double? height,
+  double letterSpacing = 0,
+  String family = HaruFonts.brand,
   TextDecoration? decoration,
 }) {
   return TextStyle(
@@ -31,60 +36,55 @@ TextStyle haruText(
     fontWeight: weight,
     color: color,
     height: height,
-    leadingDistribution: TextLeadingDistribution.even,
-    letterSpacing: letterSpacing ?? size * -0.01,
+    leadingDistribution: height == null ? null : TextLeadingDistribution.even,
+    letterSpacing: letterSpacing,
     decoration: decoration,
     decorationColor: color,
   );
 }
 
-/// Wordmark "하루한번" (Cafe24Oneprettynight, letter-spacing 0).
-TextStyle haruLogo(double size) => haruText(
-      size,
-      family: HaruFonts.logo,
-      color: HaruColors.logo,
-      height: 1.1,
-      letterSpacing: 0,
-    );
-
-/// Question body (Gowun Batang).
-TextStyle haruQuestion(double size, {Color color = Colors.white, double height = 1.45}) =>
-    haruText(size, family: HaruFonts.serif, color: color, height: height);
-
-/// Answerer name (Gaegu Bold, letter-spacing 0).
-TextStyle haruHand(double size, {Color color = HaruColors.accentName, double height = 1.1}) =>
-    haruText(
+/// `--font-hand` (dates, names, figures).
+TextStyle hrHand(
+  double size, {
+  Color color = HaruColors.forest,
+  FontWeight weight = FontWeight.w700,
+  double? height,
+  double letterSpacing = 0,
+}) =>
+    hr(
       size,
       family: HaruFonts.hand,
-      weight: FontWeight.w700,
       color: color,
+      weight: weight,
       height: height,
-      letterSpacing: 0,
+      letterSpacing: letterSpacing,
     );
 
-/// Recurring title styles.
+/// `--font-question` (question text).
+TextStyle hrQuestion(
+  double size, {
+  Color color = HaruColors.ink,
+  double? height,
+}) =>
+    hr(size, family: HaruFonts.question, color: color, height: height);
+
+/// Recurring styles.
 abstract final class HaruType {
-  /// Tab screen title — 24 / 700 / -0.6px
-  static TextStyle get screenTitle =>
-      haruText(24, weight: FontWeight.w700, letterSpacing: -0.6);
+  /// Tab title "우리 가족 일지" — 23 / forest.
+  static TextStyle get tabTitle => hr(23, color: HaruColors.forest);
 
-  /// Section title — 18 / 700 / -0.2px
-  static TextStyle get sectionTitle =>
-      haruText(18, weight: FontWeight.w700, letterSpacing: -0.2);
+  /// Sub-page header "가족 답장" — 21 / forest.
+  static TextStyle get pageTitle => hr(21, color: HaruColors.forest);
 
-  /// Sub-page header title — 17 / 600
-  static TextStyle get headerTitle => haruText(17, weight: FontWeight.w600);
+  /// Onboarding headline "이메일로 로그인해요" — 31 / 1.25 / forest.
+  static TextStyle get headline => hr(31, color: HaruColors.forest, height: 1.25);
 
-  /// Auth/onboarding headline — 26 / 700 / 1.25 / -0.5px
-  static TextStyle get headline => haruText(
-        26,
-        weight: FontWeight.w700,
-        height: 1.25,
-        letterSpacing: -0.5,
-        color: HaruColors.dsInk,
-      );
+  /// Form label "이메일" — 15 / forest.
+  static TextStyle get fieldLabel => hr(15, color: HaruColors.forest);
 
-  /// Form field label — 14 / 500 / ink-secondary
-  static TextStyle get fieldLabel =>
-      haruText(14, weight: FontWeight.w500, color: HaruColors.dsInkSecondary);
+  /// Helper / meta text — 14 / muted.
+  static TextStyle get meta => hr(14, color: HaruColors.inkMuted);
+
+  /// Inline error — 14.5 / danger.
+  static TextStyle get error => hr(14.5, color: HaruColors.danger);
 }

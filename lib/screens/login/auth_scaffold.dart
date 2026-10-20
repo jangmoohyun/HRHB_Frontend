@@ -1,186 +1,212 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:hrhb_frontend/data/family_context.dart';
 import 'package:hrhb_frontend/services/push_notification_service.dart';
-import 'package:hrhb_frontend/theme/text.dart';
 import 'package:hrhb_frontend/theme/tokens.dart';
-import 'package:hrhb_frontend/widgets/haru/haru_button.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_decor.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_layout.dart';
 
 import '../onboarding/family_select_screen.dart';
 import '../shell/home_shell.dart';
 
-/// Design-system page used by 이메일 로그인 / 가입 3단계 / 가족 생성·참여.
-class AuthPage extends StatelessWidget {
-  const AuthPage({
+/// Shared frame for the sign-in / family-connect flow (the prototype's `fl`
+/// layer): cream canvas, branches from both sides, content scrolling over
+/// the full screen.
+///
+/// The prototype lays these screens out from the very top of a 874-tall frame
+/// whose status bar is 54px; [FlowScaffold.shift] is how much taller this
+/// device's status bar is, so the absolute offsets still clear it.
+///
+/// Like the prototype, the branches stay put and only the page content plays
+/// `hrFadeUp` — on arrival and again when a flow page above it is popped
+/// (the prototype re-mounts the page it goes back to).
+class FlowScaffold extends StatefulWidget {
+  const FlowScaffold({
     super.key,
-    required this.children,
-    this.title,
-    this.padding = const EdgeInsets.fromLTRB(24, 8, 24, 40),
-    this.gap = 28,
-    this.showBack = true,
-    this.headerTrailing,
+    required this.builder,
+    this.back,
+    this.entrance = true,
   });
 
-  final List<Widget> children;
+  /// Gets the minimum content height (one screen) and the top shift.
+  final Widget Function(BuildContext context, double minHeight, double shift) builder;
 
-  /// Centered header title (가족 생성/참여). Auth screens leave it empty.
-  final String? title;
-  final EdgeInsets padding;
-  final double gap;
-  final bool showBack;
-  final Widget? headerTrailing;
+  /// Back row pinned at top 54 (form screens).
+  final Widget? back;
+  final bool entrance;
+
+  static double shiftOf(BuildContext context) =>
+      math.max(0, MediaQuery.of(context).padding.top - 54);
+
+  @override
+  State<FlowScaffold> createState() => _FlowScaffoldState();
+}
+
+class _FlowScaffoldState extends State<FlowScaffold> {
+  _FlowRoute<dynamic>? _route;
+  int _gen = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final r = ModalRoute.of(context);
+    final route = r is _FlowRoute ? r : null;
+    if (route == _route) return;
+    _route?.returned.removeListener(_replay);
+    _route = route;
+    _route?.returned.addListener(_replay);
+  }
+
+  void _replay() {
+    if (mounted) setState(() => _gen++);
+  }
+
+  @override
+  void dispose() {
+    _route?.returned.removeListener(_replay);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-      child: Scaffold(
-        backgroundColor: HaruColors.canvas,
-        body: SafeArea(
-          child: Column(
+    final shift = FlowScaffold.shiftOf(context);
+    return Scaffold(
+      backgroundColor: HaruColors.cream,
+      body: LayoutBuilder(
+        builder: (context, c) {
+          final page = SizedBox(
+            width: double.infinity,
+            child: Stack(
+              children: [
+                widget.builder(context, c.maxHeight, shift),
+                if (widget.back != null)
+                  Positioned(left: 16, right: 28, top: 54 + shift, height: 52, child: widget.back!),
+              ],
+            ),
+          );
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: c.maxHeight),
+              child: Stack(
+                children: [
+                  // Branches cover the first screen, behind the content.
+                  SizedBox(
+                    height: c.maxHeight,
+                    width: double.infinity,
+                    child: const Stack(children: [SideBranches()]),
+                  ),
+                  widget.entrance ? Entrance(key: ValueKey(_gen), child: page) : page,
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Back chevron + optional step dots on the right ("가입 1 · 2 · 3").
+class FlowBackRow extends StatelessWidget {
+  const FlowBackRow({super.key, required this.onBack, this.step, this.steps = 3});
+
+  final VoidCallback onBack;
+
+  /// 0-based current step; null hides the dots.
+  final int? step;
+  final int steps;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        BackChevron(onTap: onBack),
+        const Spacer(),
+        if (step != null)
+          Row(
             children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 52),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                  child: Row(
-                    children: [
-                      if (showBack)
-                        HaruIconButton(
-                          icon: LucideIcons.chevronLeft,
-                          label: '뒤로',
-                          onPressed: () => Navigator.of(context).maybePop(),
-                        )
-                      else
-                        const SizedBox(width: 40),
-                      Expanded(
-                        child: title == null
-                            ? const SizedBox()
-                            : Text(
-                                title!,
-                                textAlign: TextAlign.center,
-                                style: haruText(17, weight: FontWeight.w600, color: HaruColors.dsInk),
-                              ),
-                      ),
-                      headerTrailing ?? const SizedBox(width: 40),
-                    ],
+              for (var i = 0; i < steps; i++) ...[
+                if (i > 0) const SizedBox(width: 5),
+                Container(
+                  width: i == step ? 22 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: i == step
+                        ? HaruColors.forest
+                        : i < step!
+                            ? HaruColors.softGreen
+                            : HaruColors.fieldBorder,
+                    borderRadius: BorderRadius.circular(HaruRadius.full),
                   ),
                 ),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: padding,
-                  children: [
-                    for (var i = 0; i < children.length; i++) ...[
-                      if (i > 0) SizedBox(height: gap),
-                      children[i],
-                    ],
-                  ],
-                ),
-              ),
+              ],
             ],
           ),
+      ],
+    );
+  }
+}
+
+/// Form screens: padding 110 28 70, vertically centered in one screen.
+class FlowForm extends StatelessWidget {
+  const FlowForm({
+    super.key,
+    required this.minHeight,
+    required this.shift,
+    required this.children,
+  });
+
+  final double minHeight;
+  final double shift;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: minHeight),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(28, 110 + shift, 28, 70),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
         ),
       ),
     );
   }
 }
 
-/// "1 / 3" with three progress bars.
-class AuthStepIndicator extends StatelessWidget {
-  const AuthStepIndicator({super.key, required this.step});
-  final int step;
+/// Flow pages swap instantly, like the prototype's `flowTo` (the old page is
+/// gone at once and the new one plays its own `hrFadeUp`).
+Route<T> flowRoute<T>(Widget page) => _FlowRoute<T>(page);
+
+class _FlowRoute<T> extends PageRouteBuilder<T> {
+  _FlowRoute(Widget page)
+      : super(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, _, _) => page,
+        );
+
+  /// Ticks when a flow page pushed above this one is popped.
+  final returned = ValueNotifier<int>(0);
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('$step / 3', style: haruText(12, weight: FontWeight.w600, color: HaruColors.primary)),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            for (var n = 1; n <= 3; n++) ...[
-              if (n > 1) const SizedBox(width: 4),
-              Expanded(
-                child: Container(
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: n <= step ? HaruColors.primary : HaruColors.hairline,
-                    borderRadius: BorderRadius.circular(HaruRadius.full),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ],
-    );
+  void didPopNext(Route<dynamic> nextRoute) {
+    super.didPopNext(nextRoute);
+    if (nextRoute is _FlowRoute) returned.value++;
   }
 }
 
-/// Headline + description block.
-class AuthTitle extends StatelessWidget {
-  const AuthTitle({super.key, required this.title, this.description});
-  final String title;
-  final String? description;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: HaruType.headline),
-        if (description != null) ...[
-          const SizedBox(height: 8),
-          Text(description!, style: haruText(15, height: 1.5, color: HaruColors.dsInkMuted)),
-        ],
-      ],
-    );
-  }
-}
-
-/// Vertical stack with a fixed gap (the prototype's `gap:16px` forms).
-class Gap extends StatelessWidget {
-  const Gap({super.key, required this.children, this.gap = 16});
-  final List<Widget> children;
-  final double gap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < children.length; i++) ...[
-          if (i > 0) SizedBox(height: gap),
-          children[i],
-        ],
-      ],
-    );
-  }
-}
-
-/// After a successful login: family → home, otherwise → 가족 선택.
+/// After any successful sign-in: register for pushes, warm the family cache
+/// and replace the whole stack with 홈 or 가족 선택.
 void goAfterLogin(BuildContext context, {required bool hasFamily}) {
   PushNotificationService.instance.registerCurrentDevice();
   if (hasFamily) FamilyContext.instance.refresh().ignore();
   Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-    MaterialPageRoute<void>(
-      builder: (_) => hasFamily ? const HomeShell() : const FamilySelectScreen(),
-    ),
+    flowRoute<void>(hasFamily ? const HomeShell() : const FamilySelectScreen()),
     (_) => false,
   );
-}
-
-/// Link-styled text button ("이메일로 회원가입").
-class AuthLink extends StatelessWidget {
-  const AuthLink({super.key, required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return HaruButton(label: label, variant: HaruButtonVariant.link, onPressed: onTap);
-  }
 }

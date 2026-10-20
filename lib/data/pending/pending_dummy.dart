@@ -1,13 +1,18 @@
+import 'dart:convert';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/utils/korean.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_family.dart';
 
 import '../authed_call.dart';
 import '../family_context.dart';
 import 'pending_api.dart';
 import 'pending_models.dart';
 
-/// Sample data for [PendingApi], shaped like the VER2 design mockups
-/// (스트릭 12일, 참여율 92/100/76/64%, 리포트 하이라이트 …).
+/// Sample data for [PendingApi], shaped like the design mockups
+/// (연속 답변, 참여율, 리포트, 알림 …).
 ///
 /// Uses the real family members and — where an existing endpoint can answer —
 /// real data (e.g. whether I answered today), so the sample stays consistent
@@ -15,6 +20,9 @@ import 'pending_models.dart';
 class DummyPendingApi implements PendingApi {
   final _api = ApiClient();
   bool _notificationsRead = false;
+  final _deletedNotifications = <int>{};
+  static const _settingsKey = 'hrhb_dummy_notification_settings';
+  static const _storage = FlutterSecureStorage();
 
   static DateTime _today() {
     final n = DateTime.now();
@@ -58,6 +66,7 @@ class DummyPendingApi implements PendingApi {
     final monday = today.subtract(Duration(days: today.weekday - 1));
     return StreakSummary(
       current: answered ? 13 : 12,
+      best: answered ? 13 : 12,
       answeredToday: answered,
       week: [
         for (var i = 0; i < 7; i++)
@@ -247,15 +256,21 @@ class DummyPendingApi implements PendingApi {
   Future<NotificationPage> fetchNotifications({int page = 0, int size = 30}) async {
     final fam = await FamilyContext.instance.ensure();
     final others = fam.members.where((m) => !m.isMe).toList();
-    String who(int i) =>
-        others.isEmpty ? '가족' : others[i % others.length].label;
+    MemberLook? who(int i) => others.isEmpty ? null : others[i % others.length];
+    String name(int i) => who(i)?.label ?? '가족';
     final today = _today();
     DateTime at(int h, int m) => today.add(Duration(hours: h, minutes: m));
+    String? question;
+    try {
+      final q = await AuthedCall.run(_api.fetchTodayDailyQuestion);
+      if (q.isReady) question = q.content;
+    } catch (_) {}
     final items = [
       AppNotification(
         id: 6,
         type: NotificationType.questionArrived,
-        message: '오늘의 질문이 도착했어요.',
+        message: '오늘의 질문이 도착했어요',
+        preview: question ?? '오늘 하루, 가족에게 가장 고마웠던 순간은 언제였나요?',
         createdAt: at(3, 0),
         read: _notificationsRead,
         targetDate: today,
@@ -263,46 +278,57 @@ class DummyPendingApi implements PendingApi {
       AppNotification(
         id: 5,
         type: NotificationType.answerPosted,
-        message: '${withSubjectParticle(who(0))} 오늘의 질문에 답변을 남겼어요.',
-        createdAt: at(8, 10),
+        message: '${withSubjectParticle(name(0))} 답장을 남겼어요',
+        preview: '어제 다 같이 저녁 차려준 거! 설거지까지…',
+        actorUserId: who(0)?.userId,
+        createdAt: at(7, 52),
         read: _notificationsRead,
         targetDate: today,
       ),
       AppNotification(
         id: 4,
-        type: NotificationType.temperatureChanged,
-        message: '가족 온도가 어제보다 0.5°C 올랐어요.',
-        createdAt: at(10, 0),
+        type: NotificationType.answerPosted,
+        message: '${withSubjectParticle(name(1))} 답장을 남겼어요',
+        preview: '시험 기간이라 예민했는데 아무 말 없이…',
+        actorUserId: who(1)?.userId,
+        createdAt: at(8, 30),
         read: _notificationsRead,
+        targetDate: today,
       ),
       AppNotification(
         id: 3,
-        type: NotificationType.answerPosted,
-        message: '${withSubjectParticle(who(1))} 오늘의 질문에 답변을 남겼어요.',
-        createdAt: at(12, 32),
+        type: NotificationType.temperatureChanged,
+        message: '가족 온도가 0.6°C 올라갔어요!',
+        preview: '오늘도 따뜻한 하루 보내세요 ❤️',
+        createdAt: at(2, 50),
         read: true,
-        targetDate: today,
       ),
       AppNotification(
         id: 2,
         type: NotificationType.diaryPosted,
-        message: '${withSubjectParticle(who(0))} 오늘의 일지를 남겼어요.',
-        createdAt: at(13, 20),
+        message: '${withSubjectParticle(name(0))} 일지를 남겼어요',
+        preview: '비 와서 축구 대신 집에서 보드게임…',
+        actorUserId: who(0)?.userId,
+        createdAt: today.subtract(const Duration(hours: 4)),
         read: true,
-        targetDate: today,
+        targetDate: today.subtract(const Duration(days: 1)),
       ),
       AppNotification(
         id: 1,
         type: NotificationType.albumPhotosAdded,
-        message: "'추석' 앨범에 사진 7장이 올라왔어요.",
-        createdAt: today.subtract(const Duration(days: 5)),
+        message: '${withSubjectParticle(name(2))} 사진 6장을 올렸어요',
+        preview: '제주도 여름 여행',
+        actorUserId: who(2)?.userId,
+        createdAt: today.subtract(const Duration(days: 2)),
         read: true,
       ),
     ];
+    final visible =
+        items.where((n) => !_deletedNotifications.contains(n.id)).toList();
     return NotificationPage(
-      items: items,
+      items: visible,
       hasMore: false,
-      unreadCount: items.where((n) => !n.read).length,
+      unreadCount: visible.where((n) => !n.read).length,
     );
   }
 
@@ -314,5 +340,66 @@ class DummyPendingApi implements PendingApi {
   @override
   Future<AuthResult> loginWithApple({bool restoreDeletedAccount = false}) {
     throw const FeatureNotReadyException('Apple 로그인은 준비 중이에요.');
+  }
+
+  @override
+  Future<AuthResult> loginWithGoogle({bool restoreDeletedAccount = false}) {
+    throw const FeatureNotReadyException('Google 로그인은 준비 중이에요.');
+  }
+
+  // Leaving or removing members changes real family data, so the sample
+  // build refuses instead of pretending — the app would otherwise route to
+  // "가족 선택" while the server still has the family.
+  @override
+  Future<void> leaveFamily() {
+    throw const FeatureNotReadyException('가족 나가기는 준비 중이에요.');
+  }
+
+  @override
+  Future<void> removeMember(int userId) {
+    throw const FeatureNotReadyException('구성원 내보내기는 준비 중이에요.');
+  }
+
+  @override
+  Future<void> pokeMember({required int dailyQuestionId, required int userId}) async {
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+
+  @override
+  Future<void> sendInquiry({
+    required InquiryCategory category,
+    required String content,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+  }
+
+  @override
+  Future<NotificationSettings> fetchNotificationSettings() async {
+    try {
+      final raw = await _storage.read(key: _settingsKey);
+      if (raw == null) return const NotificationSettings();
+      return NotificationSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return const NotificationSettings();
+    }
+  }
+
+  @override
+  Future<NotificationSettings> updateNotificationSettings(
+    NotificationSettings settings,
+  ) async {
+    await _storage.write(key: _settingsKey, value: jsonEncode(settings.toJson()));
+    return settings;
+  }
+
+  @override
+  Future<void> deleteNotification(int id) async {
+    _deletedNotifications.add(id);
+  }
+
+  @override
+  Future<void> clearNotifications() async {
+    final page = await fetchNotifications();
+    _deletedNotifications.addAll(page.items.map((n) => n.id));
   }
 }
