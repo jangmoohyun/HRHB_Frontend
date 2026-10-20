@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
 import 'package:hrhb_frontend/services/email_auth_service.dart';
+import 'package:hrhb_frontend/theme/text.dart';
+import 'package:hrhb_frontend/theme/tokens.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_controls.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
 
-import 'auth_form_widgets.dart';
+import 'auth_scaffold.dart';
+import 'email_login_screen.dart';
 import 'email_signup_code_screen.dart';
 import 'login_screen.dart';
 
+/// 가입 1 · 이메일.
 class EmailSignupEmailScreen extends StatefulWidget {
   const EmailSignupEmailScreen({super.key});
 
@@ -14,150 +20,111 @@ class EmailSignupEmailScreen extends StatefulWidget {
 }
 
 class _EmailSignupEmailScreenState extends State<EmailSignupEmailScreen> {
-  final _emailController = TextEditingController();
-  final _emailAuth = EmailAuthService();
+  final _email = TextEditingController();
+  final _auth = EmailAuthService();
   bool _loading = false;
+  String? _error;
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _email.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      _showMessage('올바른 이메일을 입력해주세요.');
-      return;
-    }
+  String get _text => _email.text.trim();
+  bool get _emailBad => _text.length > 3 && !isValidEmail(_text);
 
-    setState(() => _loading = true);
+  Future<void> _send() async {
+    final email = _text;
+    if (!isValidEmail(email) || _loading) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final status = await _emailAuth.checkSignupStatus(email);
+      final status = await _auth.checkSignupStatus(email);
       if (!mounted) return;
-
       switch (status.status) {
         case 'REGISTERED':
-          _showMessage('이미 가입된 이메일입니다.');
+          setState(() => _error = '이미 가입된 이메일이에요. 로그인해주세요.');
           return;
         case 'RECOVERABLE':
-          final restore = await _confirmRestore();
-          if (!mounted) return;
-          if (restore != true) return;
-          await _emailAuth.restoreAccount(email);
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('계정이 복구 되었습니다.'),
-              behavior: SnackBarBehavior.floating,
-            ),
+          final ok = await showHaruConfirm(
+            context,
+            title: '삭제 예정인 계정이에요',
+            body: '탈퇴 신청 후 30일이 지나지 않았어요. 계정을 복구하고 로그인할까요?',
+            okLabel: '복구하기',
+            danger: false,
           );
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+          if (!ok || !mounted) return;
+          await _auth.restoreAccount(email);
+          if (!mounted) return;
+          final nav = Navigator.of(context, rootNavigator: true);
+          nav.pushAndRemoveUntil(
+            flowRoute<void>(LoginScreen(prefillEmail: email)),
             (_) => false,
           );
+          HaruToast.show(nav.context, '계정을 복구했어요. 로그인해주세요.');
           return;
         case 'AVAILABLE':
           break;
         default:
-          _showMessage('이메일 상태를 확인할 수 없습니다.');
+          setState(() => _error = '이메일 상태를 확인하지 못했어요.');
           return;
       }
-
-      final result = await _emailAuth.sendSignupCode(email);
+      final r = await _auth.sendSignupCode(email);
       if (!mounted) return;
-      if (result.debugCode != null && result.debugCode!.isNotEmpty) {
-        _showMessage('인증번호: ${result.debugCode}');
-      } else {
-        _showMessage('인증번호를 이메일로 보냈어요.');
-      }
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => EmailSignupCodeScreen(email: result.email),
-        ),
+      final debug = r.debugCode;
+      HaruToast.show(
+        context,
+        debug != null && debug.isNotEmpty ? '인증 코드: $debug' : '인증 코드를 보냈어요.',
       );
-    } catch (error) {
+      await Navigator.of(context).push(
+        flowRoute<void>(EmailSignupCodeScreen(email: r.email, expiresInSeconds: r.expiresInSeconds)),
+      );
+      // Back from the code step is the prototype's goSignup: a fresh email step.
+      if (mounted) setState(_email.clear);
+    } catch (e) {
       if (!mounted) return;
-      _showMessage(_friendlyError(error));
+      final t = e.toString();
+      setState(() => _error = t.contains('EMAIL_ALREADY_REGISTERED') || t.contains('already registered')
+          ? '이미 가입된 이메일이에요. 로그인해주세요.'
+          : '요청하지 못했어요. 잠시 후 다시 시도해주세요.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<bool?> _confirmRestore() {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: cream,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: const Text(
-            '계정 복구',
-            style: TextStyle(
-              fontFamily: 'Cafe24Oneprettynight',
-              color: titleGreen,
-            ),
-          ),
-          content: const Text(
-            '이 이메일은 삭제될 예정입니다.\n계정을 복구하시겠습니까?',
-            style: TextStyle(color: bodyGrey, height: 1.4),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소', style: TextStyle(color: mutedGrey)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text(
-                '복구하기',
-                style: TextStyle(
-                  color: titleGreen,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  String _friendlyError(Object error) {
-    final text = error.toString();
-    if (text.contains('EMAIL_ALREADY_REGISTERED') ||
-        text.contains('already registered')) {
-      return '이미 가입된 이메일입니다.';
-    }
-    return '요청에 실패했습니다.\n$error';
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return AuthFormScaffold(
-      title: '이메일로 회원가입',
-      subtitle: '가입에 사용할 이메일을 입력해주세요.',
-      onBack: () => Navigator.of(context).pop(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return FlowScaffold(
+      back: FlowBackRow(onBack: () => Navigator.of(context).maybePop(), step: 0),
+      builder: (context, minHeight, shift) => FlowForm(
+        minHeight: minHeight,
+        shift: shift,
         children: [
-          AuthTextField(
-            controller: _emailController,
-            hintText: 'email@example.com',
+          const SizedBox(height: 8),
+          Text('이메일을\n알려주세요', style: HaruType.headline),
+          const SizedBox(height: 8),
+          Text('가입 확인용 코드를 보내드릴게요', style: hr(15, color: HaruColors.inkMuted)),
+          const SizedBox(height: 28),
+          HaruTextField(
+            controller: _email,
+            placeholder: 'haru@family.com',
             keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.email],
+            onChanged: (_) => setState(() => _error = null),
+            onSubmitted: (_) => _send(),
           ),
-          const SizedBox(height: 18),
-          AuthPrimaryButton(
-            label: '확인',
+          if (_emailBad) const FieldError('이메일 형식을 확인해주세요.'),
+          if (_error != null) FieldError(_error!),
+          const SizedBox(height: 28),
+          PrimaryButton(
+            label: '인증 코드 받기',
             loading: _loading,
-            onPressed: _submit,
+            onPressed: isValidEmail(_text) ? _send : null,
           ),
         ],
       ),

@@ -43,6 +43,10 @@ dependencies:
   firebase_core: ^4.13.0
   firebase_messaging: ^16.5.0
   url_launcher: ^6.3.1
+  material_symbols_icons: ^4.2960.0
+  qr_flutter: ^4.1.0
+  share_plus: ^12.0.2
+  flutter_svg: ^2.3.0
 
 
 dev_dependencies:
@@ -78,53 +82,27 @@ flutter:
     - .env
     - assets/policy/terms_of_use.txt
     - assets/policy/privacy_policy.txt
-    - assets/images/background/
+    - assets/images/todayquestionscreen/
+    - assets/images/public/
+    - assets/images/familyondo/
+    - assets/images/ondo_popup/up_popup/
+    - assets/images/ondo_popup/down_popup/
     - assets/images/loading/
     - assets/images/loginpage/letter/
-    - assets/images/loginpage/kakaologin/
     - assets/images/family/familyjoin/
-    - assets/images/public/
-    - assets/images/navigation/
-    - assets/images/todayquestionscreen/
-    - assets/images/answerscreen/
-    - assets/images/familyondo/
-    - assets/images/ondo_popup/
-    - assets/images/ondo_popup/up_popup/
-    - assets/images/ondo_popup/up_popup/paper.png
-    - assets/images/ondo_popup/up_popup/grass.png
-    - assets/images/ondo_popup/up_popup/thermometer.png
-    - assets/images/ondo_popup/up_popup/text_balloon.png
-    - assets/images/ondo_popup/up_popup/arrow.png
-    - assets/images/ondo_popup/up_popup/ondo_left.png
-    - assets/images/ondo_popup/up_popup/ondo_right.png
-    - assets/images/ondo_popup/up_popup/left_heart_1.png
-    - assets/images/ondo_popup/up_popup/left_heart_2.png
-    - assets/images/ondo_popup/up_popup/middle_heart.png
-    - assets/images/ondo_popup/up_popup/right_heart_1.png
-    - assets/images/ondo_popup/up_popup/right_heart_2.png
-    - assets/images/ondo_popup/down_popup/
-    - assets/images/ondo_popup/down_popup/arrow.png
-    - assets/images/ondo_popup/down_popup/cloud.png
-    - assets/images/ondo_popup/down_popup/heart1.png
-    - assets/images/ondo_popup/down_popup/heart2.png
-    - assets/images/ondo_popup/down_popup/rain1.png
-    - assets/images/ondo_popup/down_popup/rain2.png
-    - assets/images/ondo_popup/down_popup/test_balloon.png
-    - assets/images/ondo_popup/down_popup/thermameter.png
 
   fonts:
-    - family: Cafe24Oneprettynight
-      fonts:
-        - asset: assets/fonts/title/Cafe24Oneprettynight-v2.0.ttf
-    - family: Question
-      fonts:
-        - asset: assets/fonts/title/question.ttf
+    # VER3 handwriting — Nanum (SIL OFL), license in assets/fonts/licenses/
     - family: FamilyNameDate
       fonts:
-        - asset: assets/fonts/title/familyname_date.ttf
-    - family: BMYeonsung
+        - asset: assets/fonts/hand/NanumDaSiSiJagHae.ttf
+    - family: Question
       fonts:
-        - asset: assets/fonts/title/BMYEONSUNG_ttf.ttf
-    - family: NanumDasiSijakhae
+        - asset: assets/fonts/hand/NanumPenScript.ttf
+    # VER3 brand font (all UI text) — Gaegu (SIL OFL), license in assets/fonts/licenses/
+    - family: Gaegu
       fonts:
-        - asset: assets/fonts/title/NanumSongeulssiDasiSijakhae.ttf
+        - asset: assets/fonts/gaegu/Gaegu-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/gaegu/Gaegu-Bold.ttf
+          weight: 700

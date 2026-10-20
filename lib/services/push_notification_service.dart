@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:hrhb_frontend/data/app_prefs.dart';
 import 'package:hrhb_frontend/firebase_options.dart';
 import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/token_storage.dart';
@@ -52,6 +53,8 @@ class PushNotificationService {
   /// Call after the user has a valid session (home / family select).
   Future<void> registerCurrentDevice() async {
     if (kIsWeb) return;
+    // Respect "질문 도착 알림" off — otherwise every launch re-registered.
+    if (!await AppPrefs.notificationsEnabled()) return;
     await initialize();
     if (!_initialized) return;
 
@@ -141,6 +144,7 @@ class PushNotificationService {
     if (_refreshListenerAttached) return;
     _refreshListenerAttached = true;
     FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
+      if (!await AppPrefs.notificationsEnabled()) return;
       final accessToken = await _tokenStorage.readAccessToken();
       if (accessToken == null || accessToken.isEmpty) return;
       try {

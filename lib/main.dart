@@ -6,6 +6,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'config/env.dart';
 import 'screens/loading/loading_screen.dart';
 import 'services/push_notification_service.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,14 +30,7 @@ class HrhbApp extends StatelessWidget {
     return MaterialApp(
       title: '하루한번',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3A6A3F),
-          surface: const Color(0xFFFDFBF0),
-        ),
-        scaffoldBackgroundColor: const Color(0xFFFDFBF0),
-        useMaterial3: true,
-      ),
+      theme: buildHaruTheme(),
       home: const LoadingScreen(),
     );
   }

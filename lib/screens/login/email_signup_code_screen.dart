@@ -1,125 +1,162 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:hrhb_frontend/services/email_auth_service.dart';
+import 'package:hrhb_frontend/theme/text.dart';
+import 'package:hrhb_frontend/theme/tokens.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_controls.dart';
+import 'package:hrhb_frontend/widgets/haru/haru_overlays.dart';
+import 'package:hrhb_frontend/widgets/haru/pressable.dart';
 
-import 'auth_form_widgets.dart';
+import 'auth_scaffold.dart';
+import 'email_login_screen.dart';
 import 'email_signup_password_screen.dart';
 
+/// 가입 2 · 인증 코드.
 class EmailSignupCodeScreen extends StatefulWidget {
-  const EmailSignupCodeScreen({super.key, required this.email});
+  const EmailSignupCodeScreen({
+    super.key,
+    required this.email,
+    this.expiresInSeconds = 600,
+  });
 
   final String email;
+  final int expiresInSeconds;
 
   @override
   State<EmailSignupCodeScreen> createState() => _EmailSignupCodeScreenState();
 }
 
 class _EmailSignupCodeScreenState extends State<EmailSignupCodeScreen> {
-  final _codeController = TextEditingController();
-  final _emailAuth = EmailAuthService();
+  final _code = TextEditingController();
+  final _auth = EmailAuthService();
   bool _loading = false;
   bool _resending = false;
+  String? _error;
+  late DateTime _expiresAt;
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer(widget.expiresInSeconds);
+  }
+
+  void _startTimer(int seconds) {
+    _expiresAt = DateTime.now().add(Duration(seconds: seconds));
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
-    _codeController.dispose();
+    _ticker?.cancel();
+    _code.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final code = _codeController.text.trim();
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      _showMessage('인증번호 6자리를 입력해주세요.');
-      return;
-    }
+  String get _remaining {
+    final left = _expiresAt.difference(DateTime.now());
+    if (left.isNegative) return '0:00';
+    final s = left.inSeconds;
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
 
-    setState(() => _loading = true);
+  Future<void> _verify() async {
+    final code = _code.text.trim();
+    if (code.length != 6 || _loading) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final result = await _emailAuth.verifySignupCode(
-        email: widget.email,
-        code: code,
-      );
+      final r = await _auth.verifySignupCode(email: widget.email, code: code);
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => EmailSignupPasswordScreen(
-            email: result.email,
-            signupToken: result.signupToken,
-          ),
-        ),
+        flowRoute<void>(EmailSignupPasswordScreen(email: r.email, signupToken: r.signupToken)),
       );
-    } catch (error) {
+      // Back from the password step is the prototype's sendCode: a new code
+      // and an empty field.
       if (!mounted) return;
-      _showMessage(_friendlyError(error));
+      _code.clear();
+      _resend(sentToast: '인증 코드를 보냈어요.');
+    } catch (e) {
+      if (!mounted) return;
+      final t = e.toString();
+      setState(() => _error = t.contains('expired')
+          ? '코드가 만료됐어요. 다시 받아주세요.'
+          : '코드가 맞지 않아요. 다시 확인해주세요.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _resend() async {
+  Future<void> _resend({String sentToast = '인증 코드를 다시 보냈어요.'}) async {
     if (_resending) return;
     setState(() => _resending = true);
     try {
-      final result = await _emailAuth.sendSignupCode(widget.email);
+      final r = await _auth.sendSignupCode(widget.email);
       if (!mounted) return;
-      if (result.debugCode != null && result.debugCode!.isNotEmpty) {
-        _showMessage('인증번호: ${result.debugCode}');
-      } else {
-        _showMessage('인증번호를 다시 보냈어요.');
-      }
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage('재전송에 실패했습니다.\n$error');
+      _startTimer(r.expiresInSeconds);
+      final debug = r.debugCode;
+      HaruToast.show(
+        context,
+        debug != null && debug.isNotEmpty ? '인증 코드: $debug' : sentToast,
+      );
+    } catch (_) {
+      if (mounted) setState(() => _error = '코드를 다시 보내지 못했어요.');
     } finally {
       if (mounted) setState(() => _resending = false);
     }
   }
 
-  String _friendlyError(Object error) {
-    final text = error.toString();
-    if (text.contains('expired')) return '인증번호가 만료되었어요. 다시 요청해주세요.';
-    if (text.contains('Invalid')) return '인증번호가 올바르지 않아요.';
-    return '인증에 실패했습니다.\n$error';
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return AuthFormScaffold(
-      title: '인증번호 확인',
-      subtitle: '${widget.email}\n으로 보낸 6자리 인증번호를 입력해주세요.',
-      onBack: () => Navigator.of(context).pop(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return FlowScaffold(
+      back: FlowBackRow(onBack: () => Navigator.of(context).maybePop(), step: 1),
+      builder: (context, minHeight, shift) => FlowForm(
+        minHeight: minHeight,
+        shift: shift,
         children: [
-          AuthTextField(
-            controller: _codeController,
-            hintText: '000000',
+          const SizedBox(height: 8),
+          Text('메일로 받은\n6자리 코드를 입력해주세요', style: HaruType.headline),
+          const SizedBox(height: 8),
+          Text(widget.email, style: hr(15, color: HaruColors.inkMuted)),
+          const SizedBox(height: 28),
+          HaruTextField(
+            controller: _code,
+            placeholder: '000000',
+            height: 64,
+            textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             maxLength: 6,
-            textAlign: TextAlign.center,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            style: hrHand(34, weight: FontWeight.w400, letterSpacing: 14),
+            onChanged: (_) => setState(() => _error = null),
+            onSubmitted: (_) => _verify(),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _resending ? null : _resend,
-              child: Text(
-                _resending ? '전송 중...' : '인증번호 재전송',
-                style: const TextStyle(color: titleGreen),
+          if (_error != null) FieldError(_error!),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('남은 시간 $_remaining', style: hr(14, color: HaruColors.inkMuted)),
+              Pressable(
+                onTap: () => _resend(),
+                child: Text('다시 보내기', style: hr(14, color: HaruColors.forest)),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 8),
-          AuthPrimaryButton(
+          const SizedBox(height: 28),
+          PrimaryButton(
             label: '확인',
             loading: _loading,
-            onPressed: _submit,
+            onPressed: _code.text.trim().length == 6 ? _verify : null,
           ),
         ],
       ),
