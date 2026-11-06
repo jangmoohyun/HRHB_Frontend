@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:hrhb_frontend/services/api_client.dart';
 
@@ -32,6 +33,8 @@ class TokenStorage {
   static const _familyMembersKey = 'hrhb_family_members';
   static const _tempPopupShownDateKey = 'hrhb_temp_popup_shown_date';
   static const _fcmTokenKey = 'hrhb_fcm_token';
+  static const _appGuideSeenKey = 'hrhb_app_guide_seen';
+  static const _largeTextEnabledKey = 'hrhb_large_text_enabled';
 
   final FlutterSecureStorage _storage;
 
@@ -126,6 +129,38 @@ class TokenStorage {
 
   Future<void> clearFcmToken() async {
     await _storage.delete(key: _fcmTokenKey);
+  }
+
+  /// 앱 가이드를 이미 봤는지.
+  /// SharedPreferences에 저장 — 앱 삭제 시 초기화됨.
+  /// (예전 Keychain 값은 iOS에서 재설치 후에도 남아 가이드가 안 뜨던 문제가 있어 이전함)
+  Future<bool> readAppGuideSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    // 예전 secure-storage 키는 더 이상 쓰지 않음 (재설치 후에도 남는 문제).
+    try {
+      await _storage.delete(key: _appGuideSeenKey);
+    } catch (_) {}
+    return prefs.getBool(_appGuideSeenKey) ?? false;
+  }
+
+  Future<void> saveAppGuideSeen(bool seen) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_appGuideSeenKey, seen);
+    try {
+      await _storage.delete(key: _appGuideSeenKey);
+    } catch (_) {}
+  }
+
+  Future<bool> readLargeTextEnabled() async {
+    final raw = await _storage.read(key: _largeTextEnabledKey);
+    return raw == 'true';
+  }
+
+  Future<void> saveLargeTextEnabled(bool enabled) async {
+    await _storage.write(
+      key: _largeTextEnabledKey,
+      value: enabled ? 'true' : 'false',
+    );
   }
 
   Future<void> clear() async {

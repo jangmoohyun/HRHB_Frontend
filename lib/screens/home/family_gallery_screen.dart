@@ -4,7 +4,6 @@ import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/token_storage.dart';
 import 'package:hrhb_frontend/widgets/sprout_icon.dart';
 
-import 'answer_photos_all_screen.dart';
 import 'family_album_detail_screen.dart';
 
 const _cream = Color(0xFFFDFBF0);
@@ -30,8 +29,6 @@ class _FamilyGalleryScreenState extends State<FamilyGalleryScreen> {
 
   bool _loading = true;
   String? _error;
-  int _answerTotalCount = 0;
-  List<AnswerPhotoItem> _answerPreview = const [];
   List<FamilyAlbumResult> _albums = const [];
   int _albumsNextPage = 0;
   bool _albumsHasMore = false;
@@ -65,16 +62,6 @@ class _FamilyGalleryScreenState extends State<FamilyGalleryScreen> {
     }
   }
 
-  AnswerPhotoItem _mapAnswer(GalleryAnswerPhotoResult item) {
-    return AnswerPhotoItem(
-      answerId: item.answerId,
-      imageUrl: item.imageUrl,
-      date: item.date,
-      author: item.authorLabel,
-      question: item.questionContent,
-    );
-  }
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -82,13 +69,6 @@ class _FamilyGalleryScreenState extends State<FamilyGalleryScreen> {
       _albumsLoadingMore = false;
     });
     try {
-      final preview = await _withAuth(
-        (token) => _apiClient.fetchGalleryAnswerPhotos(
-          accessToken: token,
-          page: 0,
-          size: 3,
-        ),
-      );
       final albumPage = await _withAuth(
         (token) => _apiClient.fetchFamilyAlbums(
           token,
@@ -99,8 +79,6 @@ class _FamilyGalleryScreenState extends State<FamilyGalleryScreen> {
 
       if (!mounted) return;
       setState(() {
-        _answerTotalCount = preview.totalCount;
-        _answerPreview = preview.items.map(_mapAnswer).toList();
         _albums = albumPage.albums;
         _albumsNextPage = 1;
         _albumsHasMore = albumPage.hasMore;
@@ -259,12 +237,6 @@ class _FamilyGalleryScreenState extends State<FamilyGalleryScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
-                                      _AnswerPhotosSection(
-                                        photos: _answerPreview,
-                                        totalCount: _answerTotalCount,
-                                        shortest: shortest,
-                                      ),
-                                      SizedBox(height: size.height * 0.028),
                                       _FamilyAlbumsSection(
                                         albums: _albums,
                                         shortest: shortest,
@@ -320,171 +292,6 @@ class _BrandHeader extends StatelessWidget {
         const SizedBox(height: 2),
         SproutIcon(size: shortest * 0.045),
       ],
-    );
-  }
-}
-
-class _AnswerPhotosSection extends StatelessWidget {
-  const _AnswerPhotosSection({
-    required this.photos,
-    required this.totalCount,
-    required this.shortest,
-  });
-
-  final List<AnswerPhotoItem> photos;
-  final int totalCount;
-  final double shortest;
-
-  @override
-  Widget build(BuildContext context) {
-    final thumb = shortest * 0.22;
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        shortest * 0.04,
-        shortest * 0.04,
-        shortest * 0.04,
-        shortest * 0.045,
-      ),
-      decoration: BoxDecoration(
-        color: _cardWhite,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '답변 사진 모아보기',
-                  style: TextStyle(
-                    fontFamily: 'Cafe24Oneprettynight',
-                    fontSize: shortest * 0.045,
-                    color: _titleGreen,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const AnswerPhotosAllScreen(),
-                    ),
-                  );
-                },
-                child: Text(
-                  '전체 보기 >',
-                  style: TextStyle(
-                    fontFamily: 'Cafe24Oneprettynight',
-                    fontSize: shortest * 0.032,
-                    color: _softGreen,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: shortest * 0.012),
-          Text(
-            '가족이 질문에 남긴 사진을 한눈에 볼 수 있어요',
-            style: TextStyle(
-              fontFamily: 'Cafe24Oneprettynight',
-              fontSize: shortest * 0.03,
-              color: _mutedGrey,
-            ),
-          ),
-          SizedBox(height: shortest * 0.03),
-          if (photos.isEmpty)
-            Text(
-              '아직 저장된 답변 사진이 없어요.',
-              style: TextStyle(
-                fontFamily: 'Cafe24Oneprettynight',
-                fontSize: shortest * 0.034,
-                color: _mutedGrey,
-              ),
-            )
-          else
-            SizedBox(
-              height: thumb,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: photos.length,
-                separatorBuilder: (_, _) => SizedBox(width: shortest * 0.025),
-                itemBuilder: (context, index) {
-                  return _AnswerPhotoThumb(
-                    url: photos[index].imageUrl,
-                    size: thumb,
-                    badge: index == 0 ? '$totalCount장' : null,
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AnswerPhotoThumb extends StatelessWidget {
-  const _AnswerPhotoThumb({
-    required this.url,
-    required this.size,
-    this.badge,
-  });
-
-  final String url;
-  final double size;
-  final String? badge;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const ColoredBox(
-                color: Color(0xFFE8E0D4),
-                child: Icon(Icons.image_outlined, color: _softGreen),
-              ),
-            ),
-            if (badge != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  color: Colors.black.withValues(alpha: 0.45),
-                  alignment: Alignment.center,
-                  child: Text(
-                    badge!,
-                    style: TextStyle(
-                      fontFamily: 'Cafe24Oneprettynight',
-                      fontSize: size * 0.16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

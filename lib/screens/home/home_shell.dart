@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/token_storage.dart';
+import 'package:hrhb_frontend/widgets/app_guide_overlay.dart';
 import 'package:hrhb_frontend/widgets/temperature_drop_popup.dart';
 import 'package:hrhb_frontend/widgets/temperature_rise_popup.dart';
 
 import 'family_answers_screen.dart';
+import 'family_archive_screen.dart';
 import 'family_diary_screen.dart';
 import 'family_gallery_screen.dart';
 import 'family_temperature_screen.dart';
@@ -13,10 +15,18 @@ import 'today_question_screen.dart';
 
 const _cream = Color(0xFFFDFBF0);
 const _titleGreen = Color(0xFF3A6A3F);
-const _mutedGrey = Color(0xFF8A8A8A);
 const _navShadow = Color(0x1A000000);
-const _navBarFill = Color(0xB3E8F0E4);
-const _navBarBorder = Color(0x99C5D5C0);
+const _navBarFill = Color(0xA3EAF3E4);
+const _navBarBorder = Color(0x44B5C9AE);
+const _homeGreenDeep = Color(0xFF5A6B42);
+const _navLabel = Color(0xFF5E6B55);
+
+/// Tab order: 기록 · 갤러리 · 오늘의 질문(중앙) · 온도 · 일지
+const _kArchive = 0;
+const _kGallery = 1;
+const _kToday = 2;
+const _kTemp = 3;
+const _kDiary = 4;
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -26,39 +36,30 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
+  int _index = _kToday;
+  final _archiveNavKey = GlobalKey<NavigatorState>();
   final _todayNavKey = GlobalKey<NavigatorState>();
   final _galleryNavKey = GlobalKey<NavigatorState>();
   final _navBarKey = GlobalKey();
+  final _archiveTabKey = GlobalKey();
+  final _galleryTabKey = GlobalKey();
+  final _todayTabKey = GlobalKey();
+  final _tempTabKey = GlobalKey();
+  final _diaryTabKey = GlobalKey();
   final _tokenStorage = TokenStorage();
   final _apiClient = ApiClient();
   double _navBarHeight = 0;
+  bool _showAppGuide = false;
 
   /// 디자인 확인용. 실제 반영 후 둘 다 false.
   static const _previewTempRisePopup = false;
   static const _previewTempDropPopup = false;
 
+  /// 가이드를 매번 보고 싶을 때 true (배포 전 false).
+  static const _forceAppGuide = false;
+
   FamilyProfile? _profile;
   bool _profileLoaded = false;
-
-  static const _tabs = [
-    _NavTab(
-      label: '오늘의 질문',
-      asset: 'assets/images/navigation/todayquestion.png',
-    ),
-    _NavTab(
-      label: '가족 갤러리',
-      asset: 'assets/images/navigation/familygallery.png',
-    ),
-    _NavTab(
-      label: '가족 온도',
-      asset: 'assets/images/navigation/familyondo.png',
-    ),
-    _NavTab(
-      label: '가족 일지',
-      asset: 'assets/images/navigation/familydiary.png',
-    ),
-  ];
 
   @override
   void initState() {
@@ -66,9 +67,83 @@ class _HomeShellState extends State<HomeShell> {
     _loadFamilyProfile();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _measureNavBar();
-      _maybeShowTemperaturePopup();
+      _maybeShowAppGuideThenTempPopup();
     });
   }
+
+  Future<void> _maybeShowAppGuideThenTempPopup() async {
+    try {
+      final seen = await _tokenStorage.readAppGuideSeen();
+      if (!mounted) return;
+      if (_forceAppGuide || !seen) {
+        setState(() => _showAppGuide = true);
+        return;
+      }
+    } catch (_) {}
+    await _maybeShowTemperaturePopup();
+  }
+
+  Future<void> _finishAppGuide() async {
+    if (!mounted) return;
+    setState(() => _showAppGuide = false);
+    setState(() => _index = _kToday);
+    try {
+      await _tokenStorage.saveAppGuideSeen(true);
+    } catch (_) {}
+    await _maybeShowTemperaturePopup();
+  }
+
+  List<AppGuideStep> get _guideSteps => [
+        AppGuideStep(
+          title: '하루한번에 오신 걸 환영해요',
+          body: '가족이 매일 한 번씩 묻고 답하며 온도를 키우는 앱이에요.\n'
+              '아래에서 주요 기능을 같이 눌러보며 알아볼게요.',
+        ),
+        AppGuideStep(
+          title: '오늘의 질문',
+          body: '가운데 편지 버튼이 오늘의 질문이에요.\n'
+              '매일 도착하는 질문에 답하고, 가족의 답변을 읽어보세요.',
+          targetKey: _todayTabKey,
+          tabIndex: _kToday,
+          holePadding: 8,
+          holeRadius: 999,
+        ),
+        AppGuideStep(
+          title: '기록',
+          body: '날짜별 답변·사진·주간/월간 리포트·가족 캘린더를 볼 수 있어요.\n'
+              '이번 주 별명도 리포트에서 확인해요.',
+          targetKey: _archiveTabKey,
+          tabIndex: _kArchive,
+        ),
+        AppGuideStep(
+          title: '갤러리',
+          body: '답변에 올린 사진을 모아서 보고,\n'
+              '이벤트별 앨범에 추억을 담을 수 있어요.',
+          targetKey: _galleryTabKey,
+          tabIndex: _kGallery,
+        ),
+        AppGuideStep(
+          title: '가족 온도',
+          body: '가족이 얼마나 따뜻하게 소통했는지 온도로 보여줘요.\n'
+              '답변·사진·일지를 남길수록 온도가 올라가요.',
+          targetKey: _tempTabKey,
+          tabIndex: _kTemp,
+        ),
+        AppGuideStep(
+          title: '가족 일지',
+          body: '오늘의 날씨(기분)와 짧은 글을 남기는 공간이에요.\n'
+              '지난 날 일지도 보고 수정할 수 있어요.',
+          targetKey: _diaryTabKey,
+          tabIndex: _kDiary,
+        ),
+        const AppGuideStep(
+          title: '이제 시작해 볼까요?',
+          body: '오늘의 질문에서 오른쪽 위 설정으로\n'
+              '가족 정보와 내 역할을 바꿀 수 있어요.\n'
+              '가족과 함께 따뜻한 하루를 남겨보세요!',
+          tabIndex: _kToday,
+        ),
+      ];
 
   Future<void> _loadFamilyProfile() async {
     final profile = await _tokenStorage.readFamilyProfile();
@@ -89,7 +164,6 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _maybeShowTemperaturePopup() async {
     try {
-      // Preview: show mock rise popup immediately (no API needed).
       if (_previewTempRisePopup) {
         if (!mounted) return;
         await TemperatureRisePopup.show(
@@ -169,19 +243,21 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _onTabTap(int i) {
-    if (i == _index && i == 0) {
-      _todayNavKey.currentState?.popUntil((route) => route.isFirst);
-      return;
-    }
-    if (i == _index && i == 1) {
-      _galleryNavKey.currentState?.popUntil((route) => route.isFirst);
+    if (i == _index) {
+      if (i == _kToday) {
+        _todayNavKey.currentState?.popUntil((route) => route.isFirst);
+      } else if (i == _kGallery) {
+        _galleryNavKey.currentState?.popUntil((route) => route.isFirst);
+      } else if (i == _kArchive) {
+        _archiveNavKey.currentState?.popUntil((route) => route.isFirst);
+      }
       return;
     }
     setState(() => _index = i);
   }
 
   Future<void> _openTodayAnswersFromTemperature() async {
-    setState(() => _index = 0);
+    setState(() => _index = _kToday);
     _todayNavKey.currentState?.popUntil((route) => route.isFirst);
 
     try {
@@ -245,8 +321,8 @@ class _HomeShellState extends State<HomeShell> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _measureNavBar());
 
-    // 첫 프레임(측정 전)용 fallback — 이후 실측 값으로 교체
-    final navClearance = (_navBarHeight > 0 ? _navBarHeight : shortest * 0.22) + 4;
+    final navClearance =
+        (_navBarHeight > 0 ? _navBarHeight : shortest * 0.24) + 8;
 
     if (!_profileLoaded) {
       return const Scaffold(
@@ -262,6 +338,27 @@ class _HomeShellState extends State<HomeShell> {
 
     final pages = [
       Navigator(
+        key: _archiveNavKey,
+        onGenerateRoute: (settings) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => FamilyArchiveScreen(
+              familyName: familyName,
+              bottomNavClearance: navClearance,
+            ),
+          );
+        },
+      ),
+      Navigator(
+        key: _galleryNavKey,
+        onGenerateRoute: (settings) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => const FamilyGalleryScreen(),
+          );
+        },
+      ),
+      Navigator(
         key: _todayNavKey,
         onGenerateRoute: (settings) {
           return MaterialPageRoute<void>(
@@ -276,15 +373,6 @@ class _HomeShellState extends State<HomeShell> {
           );
         },
       ),
-      Navigator(
-        key: _galleryNavKey,
-        onGenerateRoute: (settings) {
-          return MaterialPageRoute<void>(
-            settings: settings,
-            builder: (_) => const FamilyGalleryScreen(),
-          );
-        },
-      ),
       FamilyTemperatureScreen(
         bottomNavClearance: navClearance,
         onGoToTodayAnswers: _openTodayAnswersFromTemperature,
@@ -292,110 +380,243 @@ class _HomeShellState extends State<HomeShell> {
       FamilyDiaryScreen(bottomNavClearance: navClearance),
     ];
 
-    return Scaffold(
-      backgroundColor: _cream,
-      extendBody: true,
-      body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: Padding(
-        key: _navBarKey,
-        padding: EdgeInsets.fromLTRB(
-          shortest * 0.05,
-          0,
-          shortest * 0.05,
-          bottomInset + size.height * 0.012,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: _navBarFill,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: _navBarBorder, width: 1),
-            boxShadow: const [
-              BoxShadow(
-                color: _navShadow,
-                blurRadius: 18,
-                offset: Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: shortest * 0.02,
-              vertical: size.height * 0.006,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: _cream,
+          extendBody: true,
+          body: IndexedStack(index: _index, children: pages),
+          bottomNavigationBar: Padding(
+            key: _navBarKey,
+            padding: EdgeInsets.fromLTRB(
+              shortest * 0.045,
+              0,
+              shortest * 0.045,
+              bottomInset + size.height * 0.012,
             ),
-            child: Row(
-              children: List.generate(_tabs.length, (i) {
-                final tab = _tabs[i];
-                final selected = i == _index;
-                return Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () => _onTabTap(i),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Opacity(
-                                opacity: selected ? 1 : 0.55,
-                                child: Image.asset(
-                                  tab.asset,
-                                  width: shortest * 0.115,
-                                  height: shortest * 0.115,
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                              if (tab.showBadge)
-                                Positioned(
-                                  right: -2,
-                                  top: -2,
-                                  child: Container(
-                                    width: 9,
-                                    height: 9,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFFE86A4A),
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          SizedBox(height: size.height * 0.004),
-                          Text(
-                            tab.label,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: shortest * 0.028,
-                              fontWeight:
-                                  selected ? FontWeight.w700 : FontWeight.w500,
-                              color: selected ? _titleGreen : _mutedGrey,
-                              letterSpacing: -0.4,
-                            ),
+            child: SizedBox(
+              height: shortest * 0.17,
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.bottomCenter,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: _navBarFill,
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(color: _navBarBorder, width: 0.7),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: _navShadow,
+                            blurRadius: 18,
+                            offset: Offset(0, 6),
                           ),
                         ],
                       ),
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          shortest * 0.01,
+                          size.height * 0.011,
+                          shortest * 0.01,
+                          size.height * 0.009,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: KeyedSubtree(
+                                key: _archiveTabKey,
+                                child: _SideNavItem(
+                                  selected: _index == _kArchive,
+                                  label: '기록',
+                                  icon: Icons.calendar_month_rounded,
+                                  onTap: () => _onTabTap(_kArchive),
+                                  shortest: shortest,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: KeyedSubtree(
+                                key: _galleryTabKey,
+                                child: _SideNavItem(
+                                  selected: _index == _kGallery,
+                                  label: '갤러리',
+                                  asset:
+                                      'assets/images/navigation/familygallery.png',
+                                  onTap: () => _onTabTap(_kGallery),
+                                  shortest: shortest,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: shortest * 0.168),
+                            Expanded(
+                              child: KeyedSubtree(
+                                key: _tempTabKey,
+                                child: _SideNavItem(
+                                  selected: _index == _kTemp,
+                                  label: '가족 온도',
+                                  asset:
+                                      'assets/images/navigation/familyondo.png',
+                                  onTap: () => _onTabTap(_kTemp),
+                                  shortest: shortest,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: KeyedSubtree(
+                                key: _diaryTabKey,
+                                child: _SideNavItem(
+                                  selected: _index == _kDiary,
+                                  label: '가족 일지',
+                                  asset:
+                                      'assets/images/navigation/familydiary.png',
+                                  onTap: () => _onTabTap(_kDiary),
+                                  shortest: shortest,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                );
-              }),
+                  Positioned(
+                    top: -shortest * 0.106,
+                    child: KeyedSubtree(
+                      key: _todayTabKey,
+                      child: _CenterHomeButton(
+                        selected: _index == _kToday,
+                        size: shortest * 0.292,
+                        onTap: () => _onTabTap(_kToday),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
+        ),
+        if (_showAppGuide)
+          Positioned.fill(
+            child: AppGuideOverlay(
+              steps: _guideSteps,
+              onSelectTab: (i) {
+                if (!mounted) return;
+                setState(() => _index = i);
+              },
+              onFinished: _finishAppGuide,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SideNavItem extends StatelessWidget {
+  const _SideNavItem({
+    required this.selected,
+    required this.label,
+    required this.onTap,
+    required this.shortest,
+    this.asset,
+    this.icon,
+  });
+
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+  final double shortest;
+  final String? asset;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconSize = shortest * 0.098;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedScale(
+              scale: selected ? 1.08 : 1,
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutBack,
+              child: asset != null
+                  ? Opacity(
+                      opacity: selected ? 1 : 0.78,
+                      child: Image.asset(
+                        asset!,
+                        width: iconSize,
+                        height: iconSize,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    )
+                  : Icon(
+                      icon,
+                      size: iconSize * 0.88,
+                      color: selected ? _homeGreenDeep : _navLabel,
+                    ),
+            ),
+            SizedBox(height: shortest * 0.005),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: shortest * 0.024,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected ? _homeGreenDeep : _navLabel,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _NavTab {
-  const _NavTab({
-    required this.label,
-    required this.asset,
-    this.showBadge = false,
+/// 중앙 오늘의 질문 — navigation/home_letter.png 에셋.
+class _CenterHomeButton extends StatelessWidget {
+  const _CenterHomeButton({
+    required this.selected,
+    required this.size,
+    required this.onTap,
   });
 
-  final String label;
-  final String asset;
-  final bool showBadge;
+  final bool selected;
+  final double size;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedScale(
+        scale: selected ? 1.05 : 1,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Image.asset(
+            'assets/images/navigation/home_letter.png',
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+          ),
+        ),
+      ),
+    );
+  }
 }

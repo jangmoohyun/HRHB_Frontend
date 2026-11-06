@@ -4,9 +4,8 @@ import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/token_storage.dart';
 import 'package:hrhb_frontend/widgets/sprout_icon.dart';
 
-import '../family/info/family_info_screen.dart';
 import 'family_answers_screen.dart';
-import 'profile_settings_modal.dart';
+import 'family_settings_sheet.dart';
 
 const _cream = Color(0xFFFDFBF0);
 const _titleGreen = Color(0xFF3A6A3F);
@@ -538,21 +537,7 @@ class _HeaderBar extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconButton(
-            onPressed: () {
-              FamilyInfoScreen.show(context);
-            },
-            padding: EdgeInsets.zero,
-            constraints: BoxConstraints.tightFor(
-              width: iconSize + 8,
-              height: iconSize + 8,
-            ),
-            icon: Icon(
-              Icons.groups_outlined,
-              size: iconSize,
-              color: _titleGreen,
-            ),
-          ),
+          SizedBox(width: iconSize + 8, height: iconSize + 8),
           Expanded(
             child: Padding(
               padding: EdgeInsets.only(top: titleTopPad),
@@ -607,7 +592,7 @@ class _HeaderBar extends StatelessWidget {
           ),
           IconButton(
             onPressed: () async {
-              final saved = await ProfileSettingsModal.show(
+              final saved = await FamilySettingsSheet.show(
                 context,
                 familyName: familyName,
                 currentRole: myRole,
@@ -623,7 +608,7 @@ class _HeaderBar extends StatelessWidget {
               height: iconSize + 8,
             ),
             icon: Icon(
-              Icons.person_outline_rounded,
+              Icons.settings_outlined,
               size: iconSize,
               color: _titleGreen,
             ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:hrhb_frontend/services/api_client.dart';
 import 'package:hrhb_frontend/services/token_storage.dart';
 import 'package:hrhb_frontend/widgets/expandable_letter_paper.dart';
+import 'package:hrhb_frontend/widgets/linkable_text.dart';
 
 import 'write_answer_screen.dart';
 
@@ -11,19 +12,42 @@ const _titleGreen = Color(0xFF3A6A3F);
 const _buttonGreen = Color(0xFF2F8F4E);
 const _bodyGrey = Color(0xFF4A4A4A);
 const _dashGreen = Color(0xFF7FA87A);
+const _reactionEmojis = ['❤️', '👍', '😂', '😮', '😢', '🙏'];
 
 class FamilyAnswer {
   const FamilyAnswer({
+    required this.answerId,
     required this.role,
     required this.text,
     this.imageUrl,
     this.isMe = false,
+    this.myReaction,
+    this.reactions = const [],
   });
 
+  final int answerId;
   final String role;
   final String text;
   final String? imageUrl;
   final bool isMe;
+  final String? myReaction;
+  final List<AnswerReactionSummaryResult> reactions;
+
+  FamilyAnswer copyWith({
+    String? myReaction,
+    List<AnswerReactionSummaryResult>? reactions,
+    bool clearMyReaction = false,
+  }) {
+    return FamilyAnswer(
+      answerId: answerId,
+      role: role,
+      text: text,
+      imageUrl: imageUrl,
+      isMe: isMe,
+      myReaction: clearMyReaction ? null : (myReaction ?? this.myReaction),
+      reactions: reactions ?? this.reactions,
+    );
+  }
 }
 
 class FamilyAnswersScreen extends StatefulWidget {
@@ -106,10 +130,13 @@ class _FamilyAnswersScreenState extends State<FamilyAnswersScreen> {
           myImageUrl = item.imageUrl;
         }
         return FamilyAnswer(
+          answerId: item.answerId,
           role: item.roleLabel,
           text: item.content,
           imageUrl: item.imageUrl,
           isMe: item.isMe,
+          myReaction: item.myReaction,
+          reactions: item.reactions,
         );
       }).toList();
 
@@ -126,6 +153,236 @@ class _FamilyAnswersScreenState extends State<FamilyAnswersScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<T> _withAuth<T>(Future<T> Function(String token) action) async {
+    var accessToken = await _tokenStorage.readAccessToken();
+    if (accessToken == null || accessToken.isEmpty) {
+      throw StateError('로그인이 필요합니다.');
+    }
+    try {
+      return await action(accessToken);
+    } on ApiException catch (error) {
+      if (!error.message.contains('(401)')) rethrow;
+      final refreshToken = await _tokenStorage.readRefreshToken();
+      final userId = await _tokenStorage.readUserId();
+      if (refreshToken == null || userId == null) rethrow;
+      final pair = await _apiClient.refresh(refreshToken);
+      await _tokenStorage.saveSession(
+        accessToken: pair.accessToken,
+        refreshToken: pair.refreshToken,
+        userId: userId,
+      );
+      return action(pair.accessToken);
+    }
+  }
+
+  List<AnswerReactionSummaryResult> _summariesFor({
+    required String? myReaction,
+    required Map<String, int> counts,
+  }) {
+    return [
+      for (final emoji in _reactionEmojis)
+        if ((counts[emoji] ?? 0) > 0)
+          AnswerReactionSummaryResult(
+            emoji: emoji,
+            count: counts[emoji]!,
+            reactedByMe: myReaction == emoji,
+          ),
+    ];
+  }
+
+  FamilyAnswer _withLocalReaction(FamilyAnswer answer, String? nextEmoji) {
+    final counts = <String, int>{
+      for (final r in answer.reactions) r.emoji: r.count,
+    };
+    final prev = answer.myReaction;
+    if (prev != null) {
+      final left = (counts[prev] ?? 1) - 1;
+      if (left <= 0) {
+        counts.remove(prev);
+      } else {
+        counts[prev] = left;
+      }
+    }
+    if (nextEmoji != null) {
+      counts[nextEmoji] = (counts[nextEmoji] ?? 0) + 1;
+    }
+    return answer.copyWith(
+      myReaction: nextEmoji,
+      clearMyReaction: nextEmoji == null,
+      reactions: _summariesFor(myReaction: nextEmoji, counts: counts),
+    );
+  }
+
+  void _applyReactionLocally(int answerId, String? nextEmoji) {
+    setState(() {
+      _answers = [
+        for (final answer in _answers)
+          if (answer.answerId == answerId)
+            _withLocalReaction(answer, nextEmoji)
+          else
+            answer,
+      ];
+    });
+  }
+
+  Future<void> _setReaction(int answerId, String emoji) async {
+    final index = _answers.indexWhere((a) => a.answerId == answerId);
+    if (index < 0) return;
+    final previous = _answers[index];
+    if (previous.myReaction == emoji) {
+      await _clearReaction(answerId);
+      return;
+    }
+
+    _applyReactionLocally(answerId, emoji);
+    try {
+      final result = await _withAuth(
+        (token) => _apiClient.upsertAnswerReaction(
+          accessToken: token,
+          answerId: answerId,
+          emoji: emoji,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _answers = [
+          for (final answer in _answers)
+            if (answer.answerId == answerId)
+              answer.copyWith(
+                myReaction: result.myReaction,
+                clearMyReaction: result.myReaction == null,
+                reactions: result.reactions,
+              )
+            else
+              answer,
+        ];
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _answers = [
+          for (final answer in _answers)
+            if (answer.answerId == answerId) previous else answer,
+        ];
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('반응을 남기지 못했어요.\n$error')),
+      );
+    }
+  }
+
+  Future<void> _clearReaction(int answerId) async {
+    final index = _answers.indexWhere((a) => a.answerId == answerId);
+    if (index < 0) return;
+    final previous = _answers[index];
+    if (previous.myReaction == null) return;
+
+    _applyReactionLocally(answerId, null);
+    try {
+      final result = await _withAuth(
+        (token) => _apiClient.deleteAnswerReaction(
+          accessToken: token,
+          answerId: answerId,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _answers = [
+          for (final answer in _answers)
+            if (answer.answerId == answerId)
+              answer.copyWith(
+                myReaction: result.myReaction,
+                clearMyReaction: result.myReaction == null,
+                reactions: result.reactions,
+              )
+            else
+              answer,
+        ];
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _answers = [
+          for (final answer in _answers)
+            if (answer.answerId == answerId) previous else answer,
+        ];
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('반응을 취소하지 못했어요.\n$error')),
+      );
+    }
+  }
+
+  Future<void> _showReactionPicker(FamilyAnswer answer) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: _cream,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _dashGreen.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  '반응 남기기',
+                  style: TextStyle(
+                    fontFamily: 'Cafe24Oneprettynight',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _titleGreen,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    for (final emoji in _reactionEmojis)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => Navigator.of(context).pop(emoji),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: answer.myReaction == emoji
+                                ? const Color(0xFFE8F0E4)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: answer.myReaction == emoji
+                                  ? _dashGreen
+                                  : const Color(0xFFE2E0D8),
+                            ),
+                          ),
+                          child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+    await _setReaction(answer.answerId, selected);
   }
 
   Future<void> _openWriteAnswer() async {
@@ -291,7 +548,19 @@ class _FamilyAnswersScreenState extends State<FamilyAnswersScreen> {
           else
             for (var i = 0; i < _answers.length; i++) ...[
               if (i > 0) SizedBox(height: size.height * 0.018),
-              _AnswerRow(answer: _answers[i], shortest: shortest),
+              _AnswerRow(
+                answer: _answers[i],
+                shortest: shortest,
+                onChipTap: (emoji) {
+                  final answer = _answers[i];
+                  if (answer.myReaction == emoji) {
+                    _clearReaction(answer.answerId);
+                  } else {
+                    _setReaction(answer.answerId, emoji);
+                  }
+                },
+                onAddTap: () => _showReactionPicker(_answers[i]),
+              ),
             ],
         ],
       ),
@@ -415,10 +684,17 @@ class _FamilyAnswersScreenState extends State<FamilyAnswersScreen> {
 }
 
 class _AnswerRow extends StatelessWidget {
-  const _AnswerRow({required this.answer, required this.shortest});
+  const _AnswerRow({
+    required this.answer,
+    required this.shortest,
+    required this.onChipTap,
+    required this.onAddTap,
+  });
 
   final FamilyAnswer answer;
   final double shortest;
+  final ValueChanged<String> onChipTap;
+  final VoidCallback onAddTap;
 
   @override
   Widget build(BuildContext context) {
@@ -437,7 +713,7 @@ class _AnswerRow extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
+        LinkableText(
           answer.text,
           style: TextStyle(
             fontFamily: 'Cafe24Oneprettynight',
@@ -488,6 +764,62 @@ class _AnswerRow extends StatelessWidget {
             ),
           ),
         ],
+        SizedBox(height: shortest * 0.018),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final reaction in answer.reactions)
+              GestureDetector(
+                onTap: () => onChipTap(reaction.emoji),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: reaction.reactedByMe
+                        ? const Color(0xFFE8F0E4)
+                        : const Color(0xFFFFFCF6),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: reaction.reactedByMe
+                          ? _dashGreen
+                          : const Color(0xFFE2E0D8),
+                    ),
+                  ),
+                  child: Text(
+                    '${reaction.emoji} ${reaction.count}',
+                    style: TextStyle(
+                      fontFamily: 'Cafe24Oneprettynight',
+                      fontSize: shortest * 0.032,
+                      color: _bodyGrey,
+                      fontWeight: reaction.reactedByMe
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            GestureDetector(
+              onTap: onAddTap,
+              child: Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFCF6),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFE2E0D8)),
+                ),
+                child: Icon(
+                  Icons.add_rounded,
+                  size: 18,
+                  color: _dashGreen,
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }

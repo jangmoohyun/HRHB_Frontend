@@ -32,7 +32,7 @@ class _FamilyJoinScreenState extends State<FamilyJoinScreen> {
   String? _birthOrder;
   bool _isSubmitting = false;
 
-  static const _roles = ['아빠', '엄마', '아들', '딸'];
+  static const _roles = ['할아버지', '할머니', '아빠', '엄마', '아들', '딸'];
   static const _birthOrders = ['첫째', '둘째', '셋째', '넷째', '다섯째'];
 
   bool get _needsBirthOrder => _role == '아들' || _role == '딸';

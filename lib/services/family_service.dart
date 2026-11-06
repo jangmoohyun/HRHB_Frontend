@@ -12,6 +12,8 @@ class FamilyService {
   final TokenStorage _tokenStorage;
 
   static const roleLabels = {
+    '할아버지': 'GRANDFATHER',
+    '할머니': 'GRANDMOTHER',
     '아빠': 'FATHER',
     '엄마': 'MOTHER',
     '아들': 'SON',

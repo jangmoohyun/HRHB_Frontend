@@ -1,8 +1,13 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:hrhb_frontend/config/env.dart';
+import 'package:hrhb_frontend/services/apple_auth_service.dart';
 import 'package:hrhb_frontend/services/kakao_auth_service.dart';
 import 'package:hrhb_frontend/services/push_notification_service.dart';
 import 'package:hrhb_frontend/services/session_bootstrap.dart';
@@ -19,6 +24,7 @@ const _titleGreen = Color(0xFF3A6A3F);
 const _bodyGrey = Color(0xFF5F5F5F);
 const _mutedGrey = Color(0xFF8F8F8F);
 const _emailGreen = Color(0xFF4DB980);
+const _appleBlack = Color(0xFF000000);
 
 const _termsOfUseUrl =
     'https://app.notion.com/p/Privacy-Policy-2aa108cdc90280c5b22ff1426aebd7cf';
@@ -34,10 +40,13 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final KakaoAuthService _kakaoAuthService = KakaoAuthService();
+  final AppleAuthService _appleAuthService = AppleAuthService();
   final SessionBootstrap _sessionBootstrap = SessionBootstrap();
   bool _isLoggingIn = false;
   late final TapGestureRecognizer _termsTap;
   late final TapGestureRecognizer _privacyTap;
+
+  bool get _showAppleLogin => !kIsWeb && Platform.isIOS;
 
   @override
   void initState() {
@@ -140,6 +149,75 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (error) {
       if (!mounted) return;
       _showMessage('카카오 로그인에 실패했습니다.\n$error');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoggingIn = false);
+      }
+    }
+  }
+
+  Future<void> _onAppleLogin() async {
+    if (_isLoggingIn) return;
+
+    setState(() => _isLoggingIn = true);
+    try {
+      final result = await _appleAuthService.login();
+      if (!mounted) return;
+
+      if (result.restored) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              backgroundColor: _cream,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: const Text(
+                '계정 복구',
+                style: TextStyle(
+                  fontFamily: 'Cafe24Oneprettynight',
+                  color: _titleGreen,
+                ),
+              ),
+              content: const Text(
+                '계정이 복구되었습니다.',
+                style: TextStyle(color: _bodyGrey, height: 1.4),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    '확인',
+                    style: TextStyle(
+                      color: _titleGreen,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+        if (!mounted) return;
+      }
+
+      if (result.familyId != null) {
+        await _sessionBootstrap.syncFamilyProfile(
+          isFamilyCreator: result.isFamilyCreator,
+        );
+        if (!mounted) return;
+        _goToHome();
+      } else {
+        _goToFamilySelect();
+      }
+    } on SignInWithAppleAuthorizationException catch (error) {
+      if (!mounted) return;
+      if (error.code == AuthorizationErrorCode.canceled) return;
+      _showMessage('Apple 로그인에 실패했습니다.\n${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('Apple 로그인에 실패했습니다.\n$error');
     } finally {
       if (mounted) {
         setState(() => _isLoggingIn = false);
@@ -268,6 +346,62 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
+                          if (_showAppleLogin) ...[
+                            SizedBox(height: size.height * 0.012),
+                            SizedBox(
+                              width: buttonWidth,
+                              height: buttonHeight,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: _appleBlack,
+                                  borderRadius:
+                                      BorderRadius.circular(buttonRadius),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x15000000),
+                                      blurRadius: 10,
+                                      offset: Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius:
+                                        BorderRadius.circular(buttonRadius),
+                                    onTap:
+                                        _isLoggingIn ? null : _onAppleLogin,
+                                    child: Row(
+                                      children: [
+                                        SizedBox(width: buttonWidth * 0.06),
+                                        Icon(
+                                          Icons.apple,
+                                          color: Colors.white,
+                                          size: iconSize,
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            'Apple로 로그인',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: labelSize,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(
+                                          width:
+                                              buttonWidth * 0.06 + iconSize,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                           SizedBox(height: size.height * 0.012),
                           SizedBox(
                             width: buttonWidth,
@@ -293,7 +427,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   onTap: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute<void>(
-                                        builder: (_) => const EmailLoginScreen(),
+                                        builder: (_) =>
+                                            const EmailLoginScreen(),
                                       ),
                                     );
                                   },

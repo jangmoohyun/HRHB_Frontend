@@ -87,6 +87,37 @@ class ApiClient {
     return AuthResult.fromJson(body);
   }
 
+  Future<AuthResult> loginWithApple({
+    required String identityToken,
+    required String userIdentifier,
+    String? email,
+    String? fullName,
+    bool restoreDeletedAccount = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/auth/apple');
+    final response = await _client.post(
+      uri,
+      headers: const {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({
+        'identityToken': identityToken,
+        'userIdentifier': userIdentifier,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (fullName != null && fullName.isNotEmpty) 'fullName': fullName,
+        'restoreDeletedAccount': restoreDeletedAccount,
+      }),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return AuthResult.fromJson(body);
+  }
+
   Future<SendEmailCodeResult> sendEmailSignupCode(String email) async {
     final uri = Uri.parse('$_baseUrl/api/auth/email/send-code');
     final response = await _client.post(
@@ -411,6 +442,7 @@ class ApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
         'Fetch family failed (${response.statusCode}): ${response.body}',
+        statusCode: response.statusCode,
       );
     }
 
@@ -615,6 +647,55 @@ class ApiClient {
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return DailyAnswerItemResult.fromJson(body);
+  }
+
+  Future<AnswerReactionResult> upsertAnswerReaction({
+    required String accessToken,
+    required int answerId,
+    required String emoji,
+  }) async {
+    final uri = Uri.parse(
+      '$_baseUrl/api/families/me/answers/$answerId/reactions',
+    );
+    final response = await _client.put(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode({'emoji': emoji}),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return AnswerReactionResult.fromJson(body);
+  }
+
+  Future<AnswerReactionResult> deleteAnswerReaction({
+    required String accessToken,
+    required int answerId,
+  }) async {
+    final uri = Uri.parse(
+      '$_baseUrl/api/families/me/answers/$answerId/reactions',
+    );
+    final response = await _client.delete(
+      uri,
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return AnswerReactionResult.fromJson(body);
   }
 
   Future<GalleryAnswerPhotosResult> fetchGalleryAnswerPhotos({
@@ -823,6 +904,30 @@ class ApiClient {
     }
   }
 
+  Future<WeeklyTitleResult> fetchWeeklyTitles({
+    required String accessToken,
+    required DateTime weekStart,
+  }) async {
+    final y = weekStart.year.toString().padLeft(4, '0');
+    final m = weekStart.month.toString().padLeft(2, '0');
+    final d = weekStart.day.toString().padLeft(2, '0');
+    final uri = Uri.parse('$_baseUrl/api/families/me/reports/weekly-titles').replace(
+      queryParameters: {'weekStart': '$y-$m-$d'},
+    );
+    final response = await _client.get(
+      uri,
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return WeeklyTitleResult.fromJson(body);
+  }
+
   Future<FamilyTemperatureResult> fetchFamilyTemperature(String accessToken) async {
     final uri = Uri.parse('$_baseUrl/api/families/me/temperature');
     final response = await _client.get(
@@ -892,8 +997,18 @@ class ApiClient {
     required String accessToken,
     required String content,
     required String weather,
+    DateTime? date,
   }) async {
     final uri = Uri.parse('$_baseUrl/api/families/me/diary/today');
+    final bodyMap = <String, dynamic>{
+      'content': content,
+      'weather': weather,
+    };
+    if (date != null) {
+      final d = DateTime(date.year, date.month, date.day);
+      bodyMap['date'] =
+          '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    }
     final response = await _client.put(
       uri,
       headers: {
@@ -901,16 +1016,283 @@ class ApiClient {
         'Accept': 'application/json',
         'Authorization': 'Bearer $accessToken',
       },
-      body: jsonEncode({
-        'content': content,
-        'weather': weather,
-      }),
+      body: jsonEncode(bodyMap),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException.fromResponse(response.statusCode, response.body);
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return DiaryDayResult.fromJson(body);
+  }
+
+  Future<CalendarEventsResult> fetchCalendarEvents({
+    required String accessToken,
+    required int year,
+    required int month,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/families/me/calendar/events').replace(
+      queryParameters: {
+        'year': '$year',
+        'month': '$month',
+      },
+    );
+    final response = await _client.get(
+      uri,
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return CalendarEventsResult.fromJson(body);
+  }
+
+  Future<CalendarEventResult> createCalendarEvent({
+    required String accessToken,
+    required Map<String, dynamic> body,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/families/me/calendar/events');
+    final response = await _client.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode(body),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+    return CalendarEventResult.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<CalendarEventResult> updateCalendarEvent({
+    required String accessToken,
+    required int eventId,
+    required Map<String, dynamic> body,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/families/me/calendar/events/$eventId');
+    final response = await _client.put(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode(body),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+    return CalendarEventResult.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<void> deleteCalendarEvent({
+    required String accessToken,
+    required int eventId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/api/families/me/calendar/events/$eventId');
+    final response = await _client.delete(
+      uri,
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
+  }
+}
+
+class CalendarEventsResult {
+  const CalendarEventsResult({required this.events});
+
+  final List<CalendarEventResult> events;
+
+  factory CalendarEventsResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['events'] as List<dynamic>? ?? const [];
+    return CalendarEventsResult(
+      events: raw
+          .map((e) => CalendarEventResult.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class CalendarEventParticipant {
+  const CalendarEventParticipant({
+    required this.userId,
+    required this.roleLabel,
+    required this.isMe,
+  });
+
+  final int userId;
+  final String roleLabel;
+  final bool isMe;
+
+  factory CalendarEventParticipant.fromJson(Map<String, dynamic> json) {
+    return CalendarEventParticipant(
+      userId: json['userId'] as int? ?? 0,
+      roleLabel: json['roleLabel'] as String? ?? '가족',
+      isMe: json['isMe'] as bool? ?? false,
+    );
+  }
+}
+
+class CalendarEventResult {
+  const CalendarEventResult({
+    required this.id,
+    required this.title,
+    this.description,
+    required this.category,
+    this.location,
+    required this.allDay,
+    required this.startDate,
+    required this.endDate,
+    this.startTime,
+    this.endTime,
+    this.remindMinutes,
+    this.remindAt,
+    required this.createdByUserId,
+    required this.createdByLabel,
+    required this.createdByMe,
+    this.participants = const [],
+  });
+
+  final int id;
+  final String title;
+  final String? description;
+  final String category;
+  final String? location;
+  final bool allDay;
+  final DateTime startDate;
+  final DateTime endDate;
+  final String? startTime;
+  final String? endTime;
+  final int? remindMinutes;
+  final DateTime? remindAt;
+  final int createdByUserId;
+  final String createdByLabel;
+  final bool createdByMe;
+  final List<CalendarEventParticipant> participants;
+
+  factory CalendarEventResult.fromJson(Map<String, dynamic> json) {
+    DateTime parseDate(String? raw) {
+      if (raw == null || raw.isEmpty) return DateTime.now();
+      final p = DateTime.parse(raw);
+      return DateTime(p.year, p.month, p.day);
+    }
+
+    final rawParticipants = json['participants'] as List<dynamic>? ?? const [];
+    DateTime? remindAt;
+    final rawRemindAt = json['remindAt'] as String?;
+    if (rawRemindAt != null && rawRemindAt.isNotEmpty) {
+      remindAt = DateTime.tryParse(rawRemindAt)?.toLocal();
+    }
+
+    return CalendarEventResult(
+      id: json['id'] as int? ?? 0,
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String?,
+      category: json['category'] as String? ?? 'FAMILY',
+      location: json['location'] as String?,
+      allDay: json['allDay'] as bool? ?? false,
+      startDate: parseDate(json['startDate'] as String?),
+      endDate: parseDate(json['endDate'] as String?),
+      startTime: json['startTime'] as String?,
+      endTime: json['endTime'] as String?,
+      remindMinutes: json['remindMinutes'] as int?,
+      remindAt: remindAt,
+      createdByUserId: json['createdByUserId'] as int? ?? 0,
+      createdByLabel: json['createdByLabel'] as String? ?? '가족',
+      createdByMe: json['createdByMe'] as bool? ?? false,
+      participants: rawParticipants
+          .map((e) =>
+              CalendarEventParticipant.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class WeeklyTitleResult {
+  const WeeklyTitleResult({
+    required this.periodStart,
+    required this.periodEnd,
+    required this.ready,
+    required this.members,
+  });
+
+  final DateTime periodStart;
+  final DateTime periodEnd;
+  final bool ready;
+  final List<WeeklyTitleMemberResult> members;
+
+  factory WeeklyTitleResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['members'] as List<dynamic>? ?? const [];
+    return WeeklyTitleResult(
+      periodStart: DateTime.parse(json['periodStart'] as String),
+      periodEnd: DateTime.parse(json['periodEnd'] as String),
+      ready: json['ready'] as bool? ?? false,
+      members: raw
+          .map((e) =>
+              WeeklyTitleMemberResult.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class WeeklyTitleMemberResult {
+  const WeeklyTitleMemberResult({
+    required this.userId,
+    required this.role,
+    this.birthOrder,
+    required this.titles,
+  });
+
+  final int userId;
+  final String role;
+  final int? birthOrder;
+  final List<WeeklyTitleItemResult> titles;
+
+  String get roleLabel =>
+      FamilyMemberResult.labelFor(role: role, birthOrder: birthOrder);
+
+  factory WeeklyTitleMemberResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['titles'] as List<dynamic>? ?? const [];
+    return WeeklyTitleMemberResult(
+      userId: json['userId'] as int,
+      role: json['role'] as String? ?? '',
+      birthOrder: json['birthOrder'] as int?,
+      titles: raw
+          .map((e) => WeeklyTitleItemResult.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class WeeklyTitleItemResult {
+  const WeeklyTitleItemResult({
+    required this.titleCode,
+    required this.titleName,
+  });
+
+  final String titleCode;
+  final String titleName;
+
+  factory WeeklyTitleItemResult.fromJson(Map<String, dynamic> json) {
+    return WeeklyTitleItemResult(
+      titleCode: json['titleCode'] as String? ?? '',
+      titleName: json['titleName'] as String? ?? '',
+    );
   }
 }
 
@@ -1343,6 +1725,53 @@ class DailyAnswerListResult {
   }
 }
 
+class AnswerReactionSummaryResult {
+  const AnswerReactionSummaryResult({
+    required this.emoji,
+    required this.count,
+    required this.reactedByMe,
+  });
+
+  final String emoji;
+  final int count;
+  final bool reactedByMe;
+
+  factory AnswerReactionSummaryResult.fromJson(Map<String, dynamic> json) {
+    return AnswerReactionSummaryResult(
+      emoji: json['emoji'] as String? ?? '',
+      count: (json['count'] as num?)?.toInt() ?? 0,
+      reactedByMe: json['reactedByMe'] as bool? ?? false,
+    );
+  }
+}
+
+class AnswerReactionResult {
+  const AnswerReactionResult({
+    required this.answerId,
+    this.myReaction,
+    required this.reactions,
+  });
+
+  final int answerId;
+  final String? myReaction;
+  final List<AnswerReactionSummaryResult> reactions;
+
+  factory AnswerReactionResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['reactions'] as List<dynamic>? ?? const [];
+    return AnswerReactionResult(
+      answerId: json['answerId'] as int,
+      myReaction: json['myReaction'] as String?,
+      reactions: raw
+          .map(
+            (e) => AnswerReactionSummaryResult.fromJson(
+              e as Map<String, dynamic>,
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
 class DailyAnswerItemResult {
   const DailyAnswerItemResult({
     required this.answerId,
@@ -1352,6 +1781,8 @@ class DailyAnswerItemResult {
     required this.content,
     this.imageUrl,
     required this.isMe,
+    this.myReaction,
+    this.reactions = const [],
   });
 
   final int answerId;
@@ -1361,11 +1792,14 @@ class DailyAnswerItemResult {
   final String content;
   final String? imageUrl;
   final bool isMe;
+  final String? myReaction;
+  final List<AnswerReactionSummaryResult> reactions;
 
   String get roleLabel =>
       FamilyMemberResult.labelFor(role: role, birthOrder: birthOrder);
 
   factory DailyAnswerItemResult.fromJson(Map<String, dynamic> json) {
+    final rawReactions = json['reactions'] as List<dynamic>? ?? const [];
     return DailyAnswerItemResult(
       answerId: json['answerId'] as int,
       userId: json['userId'] as int,
@@ -1374,6 +1808,14 @@ class DailyAnswerItemResult {
       content: json['content'] as String? ?? '',
       imageUrl: json['imageUrl'] as String?,
       isMe: json['isMe'] as bool? ?? false,
+      myReaction: json['myReaction'] as String?,
+      reactions: rawReactions
+          .map(
+            (e) => AnswerReactionSummaryResult.fromJson(
+              e as Map<String, dynamic>,
+            ),
+          )
+          .toList(),
     );
   }
 }
@@ -1472,12 +1914,14 @@ class FamilyMemberResult {
     required this.role,
     this.birthOrder,
     required this.isMe,
+    this.isCreator = false,
   });
 
   final int userId;
   final String role;
   final int? birthOrder;
   final bool isMe;
+  final bool isCreator;
 
   factory FamilyMemberResult.fromJson(Map<String, dynamic> json) {
     return FamilyMemberResult(
@@ -1485,6 +1929,7 @@ class FamilyMemberResult {
       role: json['role'] as String? ?? '',
       birthOrder: json['birthOrder'] as int?,
       isMe: json['isMe'] as bool? ?? false,
+      isCreator: json['isCreator'] as bool? ?? false,
     );
   }
 
@@ -1493,14 +1938,19 @@ class FamilyMemberResult {
         'role': role,
         'birthOrder': birthOrder,
         'isMe': isMe,
+        'isCreator': isCreator,
       };
 
-  /// 아빠 / 엄마 / 첫째 아들 / 둘째 딸 ...
+  /// 할아버지 / 할머니 / 아빠 / 엄마 / 첫째 아들 / 둘째 딸 ...
   String get roleLabel => labelFor(role: role, birthOrder: birthOrder);
 
   static String labelFor({required String role, int? birthOrder}) {
     const birth = {1: '첫째', 2: '둘째', 3: '셋째', 4: '넷째', 5: '다섯째'};
     switch (role) {
+      case 'GRANDFATHER':
+        return '할아버지';
+      case 'GRANDMOTHER':
+        return '할머니';
       case 'FATHER':
         return '아빠';
       case 'MOTHER':
